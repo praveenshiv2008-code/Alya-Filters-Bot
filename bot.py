@@ -28,8 +28,8 @@ API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MONGO_URI = os.environ.get("MONGO_URI", "")
 DB_NAME = "telegram_search_bot"
-OWNER_ID = 6454751048
-BACKUP_CHANNEL_ID = -1002932260531
+OWNER_ID = 7195555305
+BACKUP_CHANNEL_ID = -1004413159220
 LINK_EXPIRY_SECONDS = 1800
 LINK_REUSE_WINDOW = 1500
 BIO_UPDATE_INTERVAL = 14
@@ -431,12 +431,12 @@ async def start_command(client: Client, message: Message):
         if is_group:
             await message.reply(
                 f"👋 **Welcome {message.from_user.first_name}!**\n\n"
-                f"🔍 **Anime Search Bot by @SBANIME**\n\n"
+                f"🔍 **Anime Search Bot by @Anicore_Animes**\n\n"
                 f"📌 **/help**\n"
                 f"🔎 **/search anime name**\n"
                 f"🔍 **/s anime name**\n"
                 f"༺═━━━ {{ ⚜ }} ━━━═༻\n"
-                f"    **👑 Developed by RJ**\n"
+                f"    **👑 Developed by Pʀɨʍɛ ƈօʀɛ**\n"
                 f"༺═━━━ {{ ⚜ }} ━━━═༻"
             )
             return
@@ -457,12 +457,12 @@ async def start_command(client: Client, message: Message):
 
         await message.reply(
             f"👋 **Welcome {message.from_user.first_name}!**\n\n"
-            f"🔍 **Anime Search Bot by @SBANIME**\n\n"
+            f"🔍 **Anime Search Bot by @Anicore_animes**\n\n"
             f"📌 **/help**\n"
             f"🔎 **/search anime name**\n"
             f"🔍 **/s anime name**\n"
             f"༺═━━━ {{ ⚜ }} ━━━═༻\n"
-            f"    **👑 Developed by RJ**\n"
+            f"    **👑 Developed by Pʀɨʍɛ ƈօʀɛ**\n"
             f"༺═━━━ {{ ⚜ }} ━━━═༻"
         )
     except Exception as e:
