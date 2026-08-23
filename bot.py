@@ -1,4 +1,14 @@
-# bot.py - Telegram Search Bot v2.0 (Compressed)
+# bot.py - Telegram Search Bot v2.0 
+# Add this at the very top of bot.py
+import os
+import sys
+
+# For Render - Use environment port if available
+if os.environ.get("RENDER"):
+    print("Running on Render.com")
+    
+    # Override backup channel if needed (optional)
+    # BACKUP_CHANNEL_ID = int(os.environ.get("BACKUP_CHANNEL_ID", "-1001234567890"))
 import os, sys, json, time, asyncio, logging, zipfile, io
 from datetime import datetime, timedelta
 from collections import defaultdict
