@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: telegram-search-bot
+    name: alya-filter-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
@@ -13,3 +13,9 @@ services:
         sync: false
       - key: MONGO_URI
         sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: BACKUP_CHANNEL_ID
+        sync: false
+      - key: RENDER
+        value: true
