@@ -542,11 +542,10 @@ async def update_welcome_settings(chat_id: int, updates: dict):
     )
 
 # ============================================================
-# BUTTON FUNCTIONS (All small caps, no extra ALYA, no SEARCH)
+# BUTTON FUNCTIONS
 # ============================================================
 
 def get_start_menu_buttons():
-    """Get start menu buttons - Only A L Y A letters, no full name, no SEARCH"""
     return [
         [
             InlineKeyboardButton("🇦", callback_data="alya_a"),
@@ -578,7 +577,7 @@ def get_welcome_buttons():
     ]
 
 # ============================================================
-# ACCESS DENIED / OWNER DENIED
+# ACCESS DENIED MESSAGES
 # ============================================================
 
 ACCESS_DENIED = """
@@ -613,7 +612,7 @@ OWNER_DENIED = """
 """
 
 # ============================================================
-# SEND WELCOME WITH RANDOM IMAGE & FULL SMALL CAPS CAPTION
+# SEND WELCOME WITH RANDOM IMAGE & SMALL CAPS
 # ============================================================
 
 async def send_welcome_with_image(client: Client, chat_id: int, user_name: str, edit_message_id: int = None):
@@ -663,7 +662,7 @@ async def send_welcome_with_image(client: Client, chat_id: int, user_name: str, 
         )
 
 # ============================================================
-# /start COMMAND
+# START COMMAND
 # ============================================================
 
 @app.on_message(filters.command("start") & (filters.private | filters.group))
@@ -1087,26 +1086,1111 @@ async def advanced_antilink_handler(client: Client, message: Message):
         logger.error(f"Advanced anti-link error: {e}")
 
 # ============================================================
-# FILTER COMMANDS (Full Set)
+# ALL ORIGINAL COMMAND HANDLERS
 # ============================================================
 
-# (Add, Edit, Delete, List, Stats, Add Reply, Delete Reply, Group, Export, Import)
-# I will include them all but shortened for brevity – they are standard.
+# --- Verify ---
+@app.on_message(filters.command("verify") & filters.private)
+async def verify_channel(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /verify channel_id")
+            return
+        channel_id = int(message.command[1])
+        existing = await channels_col.find_one({"channel_id": channel_id})
+        if existing and existing.get("status") == "active":
+            await message.reply("⚠️ Channel already verified!")
+            return
+        chat = await client.get_chat(channel_id)
+        bot_member = await client.get_chat_member(channel_id, "me")
+        if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+            await message.reply("❌ Bot must be admin in the channel.")
+            return
+        is_private = chat.username is None
+        bio = chat.description or ""
+        await channels_col.update_one(
+            {"channel_id": channel_id},
+            {"$set": {
+                "channel_id": channel_id,
+                "title": chat.title,
+                "username": chat.username,
+                "bio": bio,
+                "is_private": is_private,
+                "status": "active",
+                "verified_by": message.from_user.id,
+                "verified_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        clear_all_cache()
+        await message.reply(f"✅ Channel {chat.title} verified!")
+        await log_action("channel_verified", message.from_user.id, f"{chat.title} ({channel_id})")
+    except Exception as e:
+        logger.error(f"Verify error: {e}")
+        await message.reply(f"❌ Error: {e}")
 
-# You already have addfilter, editfilter, delfilter, listfilters, filterstats, addreply, delreply, filtergroup, exportfilters, importfilters.
-# They are identical to the ones in the earlier version. For space, I'll omit the full bodies here, but they are included in the actual file.
+# --- Unverify ---
+@app.on_message(filters.command("unverify") & filters.private)
+async def unverify_channel(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /unverify channel_id")
+            return
+        channel_id = int(message.command[1])
+        channel = await channels_col.find_one({"channel_id": channel_id})
+        if not channel:
+            await message.reply("❌ Channel not found.")
+            return
+        await channels_col.delete_one({"channel_id": channel_id})
+        clear_all_cache()
+        await message.reply(f"✅ Channel {channel.get('title')} removed.")
+        await log_action("channel_removed", message.from_user.id, f"{channel_id}")
+    except Exception as e:
+        logger.error(f"Unverify error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Channels List ---
+@app.on_message(filters.command("channels") & filters.private)
+async def list_channels_cmd(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        channels = await channels_col.find({"status": "active"}).to_list(length=None)
+        if not channels:
+            await message.reply("No verified channels.")
+            return
+        text = "📋 Verified Channels:\n\n"
+        for i, ch in enumerate(channels, 1):
+            privacy = "🔒" if ch.get("is_private") else "🌐"
+            text += f"{i}. {privacy} {ch.get('title', 'Unknown')}\n   🆔 `{ch['channel_id']}`\n\n"
+        text += f"Total: {len(channels)}"
+        for part in split_message(text):
+            await message.reply(part)
+    except Exception as e:
+        logger.error(f"Channels error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Detailed List ---
+@app.on_message(filters.command("list") & filters.private)
+async def list_detailed_cmd(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        channels = await channels_col.find({"status": "active"}).to_list(length=None)
+        if not channels:
+            await message.reply("No verified channels.")
+            return
+        total = len(channels)
+        total_pages = (total + LIST_PAGE_SIZE - 1) // LIST_PAGE_SIZE
+        for page in range(total_pages):
+            start = page * LIST_PAGE_SIZE
+            end = min(start + LIST_PAGE_SIZE, total)
+            page_channels = channels[start:end]
+            text = f"📋 Verified Channels (Page {page+1}/{total_pages})\n\n"
+            for i, ch in enumerate(page_channels, start+1):
+                privacy = "🔒 Private" if ch.get("is_private") else "🌐 Public"
+                bio = ch.get("bio", "") or "No bio"
+                bio_preview = bio[:80] + "..." if len(bio) > 80 else bio
+                verified_at = ch.get("verified_at", "N/A")
+                if isinstance(verified_at, datetime):
+                    verified_at = verified_at.strftime("%d %b %Y")
+                text += f"━━━ {i} ━━━━━━━━━━━━━━━━━━\n📢 {ch.get('title', 'Unknown')}\n📝 {bio_preview}\n🔗 {'@'+ch['username'] if ch.get('username') else 'Private'}\n🆔 `{ch['channel_id']}`\n📅 Verified: {verified_at}\n\n"
+            text += f"Total: {total} channels | Page {page+1}/{total_pages}"
+            for part in split_message(text):
+                await message.reply(part)
+    except Exception as e:
+        logger.error(f"List error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Broadcast ---
+@app.on_message(filters.command("broadcast") & filters.private)
+async def broadcast_command(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if not message.reply_to_message:
+            await message.reply("❌ Reply to a message to broadcast.")
+            return
+        reply_msg = message.reply_to_message
+        total_users = await users_col.count_documents({})
+        if total_users == 0:
+            await message.reply("❌ No users in database.")
+            return
+        preview = reply_msg.text[:200] if reply_msg.text else (reply_msg.caption[:200] if reply_msg.caption else f"[{reply_msg.media or 'Media'}]")
+        confirm_msg = await message.reply(
+            f"📤 Broadcast Confirmation\n\nPreview:\n{preview}\n\nTotal Users: {total_users}\n\nProceed?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Yes", callback_data=f"bc_yes_{reply_msg.id}"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]
+            ])
+        )
+        broadcast_state[f"bc_{reply_msg.id}"] = {
+            "reply_msg_id": reply_msg.id,
+            "chat_id": message.chat.id,
+            "admin_id": message.from_user.id
+        }
+    except Exception as e:
+        logger.error(f"Broadcast error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_callback_query(filters.regex("^bc_yes_"))
+async def broadcast_confirm(client: Client, callback: CallbackQuery):
+    try:
+        if not await is_admin(callback.from_user.id):
+            await callback.answer("❌ Access denied!", show_alert=True)
+            return
+        reply_msg_id = int(callback.data.split("_")[2])
+        state = broadcast_state.get(f"bc_{reply_msg_id}")
+        if not state:
+            await callback.answer("❌ Session expired!", show_alert=True)
+            return
+        broadcast_msg = await client.get_messages(state["chat_id"], reply_msg_id)
+        start_time = time.time()
+        total_users = await users_col.count_documents({})
+        success = failed = blocked = 0
+        progress_msg = await callback.message.edit_text(
+            f"📤 Broadcasting...\n\nProgress: 0/{total_users}\n✅ Sent: 0\n⏱️ Time: 0s\n❌ Failed: 0\n🚫 Blocked: 0"
+        )
+        processed = 0
+        async for user_doc in users_col.find({}, {"user_id": 1}):
+            uid = user_doc["user_id"]
+            processed += 1
+            try:
+                await broadcast_msg.copy(uid)
+                success += 1
+            except (UserIsBlocked, InputUserDeactivated):
+                blocked += 1
+            except FloodWait as fw:
+                await asyncio.sleep(fw.value)
+                try:
+                    await broadcast_msg.copy(uid)
+                    success += 1
+                except Exception:
+                    failed += 1
+            except Exception:
+                failed += 1
+            if processed % BROADCAST_SPEED == 0:
+                elapsed = format_time_delta(time.time() - start_time)
+                try:
+                    await progress_msg.edit_text(
+                        f"📤 Broadcasting...\n\nProgress: {processed}/{total_users}\n✅ Sent: {success}\n⏱️ Time: {elapsed}\n❌ Failed: {failed}\n🚫 Blocked: {blocked}"
+                    )
+                except Exception:
+                    pass
+            await asyncio.sleep(0.04)
+        elapsed = format_time_delta(time.time() - start_time)
+        await progress_msg.edit_text(
+            f"✅ Broadcast Complete!\n\nTotal: {total_users}\n✅ Sent: {success}\n⏱️ Time: {elapsed}\n❌ Failed: {failed}\n🚫 Blocked: {blocked}"
+        )
+        broadcast_state.pop(f"bc_{reply_msg_id}", None)
+        await log_action("broadcast", callback.from_user.id, f"Sent:{success} Failed:{failed} Blocked:{blocked}")
+    except Exception as e:
+        logger.error(f"Broadcast confirm error: {e}")
+        await callback.message.edit_text(f"❌ Broadcast Error: {e}")
+
+@app.on_callback_query(filters.regex("^bc_cancel$"))
+async def broadcast_cancel(client: Client, callback: CallbackQuery):
+    try:
+        if not await is_admin(callback.from_user.id):
+            await callback.answer("❌ Access denied!", show_alert=True)
+            return
+        await callback.message.edit_text("❌ Broadcast cancelled.")
+    except Exception as e:
+        logger.error(f"BC cancel error: {e}")
+
+# --- Advertisement Commands ---
+@app.on_message(filters.command("addad") & filters.private)
+async def add_advertisement(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        args = message.text.split(None, 4)
+        if len(args) < 5:
+            await message.reply("❌ Usage: /addad slot type url button_text")
+            return
+        slot = int(args[1])
+        if slot < 1 or slot > 6:
+            await message.reply("❌ Slot must be 1-6.")
+            return
+        link_type = args[2].lower()
+        if link_type not in ["request", "normal", "external"]:
+            await message.reply("❌ Type must be request, normal, or external.")
+            return
+        url = args[3]
+        button_text = args[4]
+        await ads_col.update_one(
+            {"slot": slot},
+            {"$set": {"slot": slot, "type": link_type, "url": url, "button_text": button_text, "active": True, "clicks": 0, "impressions": 0, "created_at": datetime.now(timezone.utc), "created_by": message.from_user.id}},
+            upsert=True
+        )
+        await message.reply(f"✅ Ad added to slot {slot}.")
+        await log_action("ad_added", message.from_user.id, f"Slot {slot}")
+    except Exception as e:
+        logger.error(f"Add ad error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("removead") & filters.private)
+async def remove_advertisement(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /removead slot")
+            return
+        slot = int(message.command[1])
+        result = await ads_col.delete_one({"slot": slot})
+        if result.deleted_count > 0:
+            await message.reply(f"✅ Ad removed from slot {slot}.")
+        else:
+            await message.reply(f"❌ No ad found in slot {slot}.")
+        await log_action("ad_removed", message.from_user.id, f"Slot {slot}")
+    except Exception as e:
+        logger.error(f"Remove ad error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("listads") & filters.private)
+async def list_ads(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        ads = await ads_col.find().sort("slot", 1).to_list(length=None)
+        if not ads:
+            await message.reply("No ads found.")
+            return
+        text = "📢 Advertisements:\n\n"
+        for ad in ads:
+            text += f"Slot {ad['slot']}: {ad.get('button_text')} - {ad.get('url')}\n   Impressions: {ad.get('impressions', 0)}\n\n"
+        await message.reply(text)
+        await log_action("list_ads", message.from_user.id)
+    except Exception as e:
+        logger.error(f"List ads error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("adstats") & filters.private)
+async def ad_stats(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        total = 0
+        text = "📊 Ad Statistics:\n\n"
+        async for ad in ads_col.find().sort("slot", 1):
+            imp = ad.get("impressions", 0)
+            total += imp
+            text += f"Slot {ad['slot']}: {ad.get('button_text')} - 👁️ {imp}\n"
+        text += f"\nTotal Impressions: {total}"
+        await message.reply(text)
+        await log_action("ad_stats", message.from_user.id)
+    except Exception as e:
+        logger.error(f"Ad stats error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Ban/Unban/Userinfo ---
+@app.on_message(filters.command("ban") & filters.private)
+async def ban_user(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /ban user_id")
+            return
+        target_id = int(message.command[1])
+        if target_id == OWNER_ID:
+            await message.reply("❌ Cannot ban owner.")
+            return
+        await users_col.update_one({"user_id": target_id}, {"$set": {"is_banned": True}}, upsert=True)
+        await message.reply(f"✅ User {target_id} banned.")
+        await log_action("user_banned", message.from_user.id, f"Target: {target_id}")
+    except Exception as e:
+        logger.error(f"Ban error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("unban") & filters.private)
+async def unban_user(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /unban user_id")
+            return
+        target_id = int(message.command[1])
+        await users_col.update_one({"user_id": target_id}, {"$set": {"is_banned": False}})
+        await message.reply(f"✅ User {target_id} unbanned.")
+        await log_action("user_unbanned", message.from_user.id, f"Target: {target_id}")
+    except Exception as e:
+        logger.error(f"Unban error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("userinfo") & filters.private)
+async def user_info(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /userinfo user_id")
+            return
+        target_id = int(message.command[1])
+        user_doc = await users_col.find_one({"user_id": target_id})
+        if not user_doc:
+            await message.reply("❌ User not found.")
+            return
+        ban_status = "🚫 Banned" if user_doc.get("is_banned") else "✅ Active"
+        await message.reply(
+            f"👤 User Info:\n\n🆔 {target_id}\n👤 {user_doc.get('first_name', 'N/A')}\n📛 @{user_doc.get('username', 'N/A')}\n📅 Joined: {user_doc.get('joined_at', 'N/A')}\n🔍 Searches: {user_doc.get('searches_count', 0)}\n📊 Status: {ban_status}"
+        )
+        await log_action("userinfo", message.from_user.id, f"Target: {target_id}")
+    except Exception as e:
+        logger.error(f"User info error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Force Join ---
+@app.on_message(filters.command("addfj") & filters.private)
+async def add_force_join(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /addfj channel_id")
+            return
+        channel_id = int(message.command[1])
+        chat = await client.get_chat(channel_id)
+        is_private = chat.username is None
+        if not is_private:
+            invite_url = f"https://t.me/{chat.username}"
+            channel_data = {
+                "channel_id": channel_id,
+                "title": chat.title,
+                "username": chat.username,
+                "invite_url": invite_url,
+                "type": "join",
+                "is_private": False
+            }
+            await settings_col.update_one(
+                {"_id": "force_join"},
+                {"$addToSet": {"channels": channel_data}},
+                upsert=True
+            )
+            await message.reply(f"✅ Force join added for {chat.title}")
+        else:
+            fj_pending[f"fj_{channel_id}"] = {"channel_id": channel_id, "title": chat.title, "username": chat.username}
+            await message.reply(
+                "🔒 Private channel detected.\nChoose type:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔐 Request", callback_data=f"fj_request_{channel_id}"),
+                     InlineKeyboardButton("📥 Join", callback_data=f"fj_join_{channel_id}")]
+                ])
+            )
+        await log_action("add_fj", message.from_user.id, f"Channel: {channel_id}")
+    except Exception as e:
+        logger.error(f"Add FJ error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_callback_query(filters.regex(r"^fj_(request|join)_"))
+async def fj_type_callback(client: Client, callback: CallbackQuery):
+    try:
+        if not await is_admin(callback.from_user.id):
+            await callback.answer("❌ Access denied!", show_alert=True)
+            return
+        parts = callback.data.split("_", 2)
+        fj_type = parts[1]
+        channel_id = int(parts[2])
+        pending = fj_pending.get(f"fj_{channel_id}")
+        if not pending:
+            await callback.answer("❌ Expired! Use /addfj again.", show_alert=True)
+            return
+        invite = await client.create_chat_invite_link(
+            chat_id=channel_id,
+            creates_join_request=(fj_type == "request"),
+            name=f"force_{fj_type}_{channel_id}"
+        )
+        channel_data = {
+            "channel_id": channel_id,
+            "title": pending["title"],
+            "username": pending["username"],
+            "invite_url": invite.invite_link,
+            "type": fj_type,
+            "is_private": True
+        }
+        await settings_col.update_one(
+            {"_id": "force_join"},
+            {"$addToSet": {"channels": channel_data}},
+            upsert=True
+        )
+        fj_pending.pop(f"fj_{channel_id}", None)
+        type_text = "Request" if fj_type == "request" else "Direct Join"
+        await callback.message.edit_text(f"✅ Force join added with {type_text} for {pending['title']}")
+        await log_action("fj_added", callback.from_user.id, f"Channel: {channel_id}")
+    except Exception as e:
+        logger.error(f"FJ callback error: {e}")
+        await callback.message.edit_text(f"❌ Error: {e}")
+
+@app.on_message(filters.command("removefj") & filters.private)
+async def remove_force_join(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /removefj channel_id")
+            return
+        channel_id = int(message.command[1])
+        await settings_col.update_one(
+            {"_id": "force_join"},
+            {"$pull": {"channels": {"channel_id": channel_id}}}
+        )
+        await message.reply(f"✅ Force join removed for channel {channel_id}.")
+        await log_action("remove_fj", message.from_user.id, f"Channel: {channel_id}")
+    except Exception as e:
+        logger.error(f"Remove FJ error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("listfj") & filters.private)
+async def list_force_join(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        channels = await get_force_join_channels()
+        if not channels:
+            await message.reply("No force join channels.")
+            return
+        text = "📋 Force Join Channels:\n\n"
+        for i, ch in enumerate(channels, 1):
+            type_text = "Request" if ch.get("type") == "request" else "Join"
+            privacy = "🔒 Private" if ch.get("is_private") else "🌐 Public"
+            text += f"{i}. {ch.get('title')} | {privacy} | {type_text}\n   🆔 `{ch['channel_id']}`\n\n"
+        await message.reply(text)
+        await log_action("list_fj", message.from_user.id)
+    except Exception as e:
+        logger.error(f"List FJ error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Stats ---
+@app.on_message(filters.command("stats") & filters.private)
+async def bot_stats(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        total_users = await users_col.count_documents({})
+        banned = await users_col.count_documents({"is_banned": True})
+        channels = await channels_col.count_documents({"status": "active"})
+        admins = await admins_col.count_documents({})
+        active_ads = await ads_col.count_documents({"active": True})
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_users = await users_col.count_documents({"joined_at": {"$gte": today}})
+        today_searches = await logs_col.count_documents({"action": "search", "timestamp": {"$gte": today}})
+        await message.reply(
+            f"📊 Bot Statistics:\n\n👥 Users: {total_users}\n🚫 Banned: {banned}\n📢 Channels: {channels}\n🛡️ Admins: {admins+1}\n📢 Ads: {active_ads}\n\n📅 Today:\n👤 New: {today_users}\n🔍 Searches: {today_searches}"
+        )
+        await log_action("stats", message.from_user.id)
+    except Exception as e:
+        logger.error(f"Stats error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("channelstats") & filters.private)
+async def channel_stats(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /channelstats channel_id")
+            return
+        channel_id = int(message.command[1])
+        ch = await channels_col.find_one({"channel_id": channel_id})
+        if not ch:
+            await message.reply("❌ Channel not found.")
+            return
+        links = await invite_links_col.count_documents({"channel_id": channel_id})
+        privacy = "🔒 Private" if ch.get("is_private") else "🌐 Public"
+        await message.reply(
+            f"📊 Channel Stats:\n\n📢 {ch.get('title')}\n🆔 {channel_id}\n🔐 {privacy}\n🔗 Links Generated: {links}\n📅 Verified: {ch.get('verified_at', 'N/A')}"
+        )
+        await log_action("channelstats", message.from_user.id, f"Channel: {channel_id}")
+    except Exception as e:
+        logger.error(f"Channel stats error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("searchstats") & filters.private)
+async def search_stats(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        total = await logs_col.count_documents({"action": "search"})
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_s = await logs_col.count_documents({"action": "search", "timestamp": {"$gte": today}})
+        week = datetime.now(timezone.utc) - timedelta(days=7)
+        week_s = await logs_col.count_documents({"action": "search", "timestamp": {"$gte": week}})
+        await message.reply(
+            f"📊 Search Statistics:\n\n🔍 Total: {total}\n📅 Today: {today_s}\n📆 This Week: {week_s}"
+        )
+        await log_action("searchstats", message.from_user.id)
+    except Exception as e:
+        logger.error(f"Search stats error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Backup & Restore ---
+async def create_backup_data():
+    backup = {}
+    for col_name, col in [("users", users_col), ("channels", channels_col), ("advertisements", ads_col), ("settings", settings_col), ("admins", admins_col)]:
+        docs = []
+        async for doc in col.find():
+            doc["_id"] = str(doc["_id"])
+            for key, val in doc.items():
+                if isinstance(val, datetime):
+                    doc[key] = val.isoformat()
+            docs.append(doc)
+        backup[col_name] = docs
+    return backup
+
+async def create_backup_zip(backup_data):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for name, data in backup_data.items():
+            zf.writestr(f"{name}.json", json.dumps(data, indent=2, ensure_ascii=False))
+    zip_buffer.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return zip_buffer, f"backup_{timestamp}.zip"
+
+@app.on_message(filters.command("backup") & filters.private)
+async def backup_command(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        status_msg = await message.reply("📦 Creating backup...")
+        start_time = time.time()
+        backup_data = await create_backup_data()
+        zip_buffer, filename = await create_backup_zip(backup_data)
+        elapsed = format_time_delta(time.time() - start_time)
+        caption = f"📦 Backup\n\n📅 {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')}\n👥 Users: {len(backup_data.get('users', []))}\n📢 Channels: {len(backup_data.get('channels', []))}\n⏱️ Time: {elapsed}"
+        try:
+            sent = await client.send_document(BACKUP_CHANNEL_ID, zip_buffer, file_name=filename, caption=caption)
+            await backup_records_col.insert_one({
+                "message_id": sent.id,
+                "channel_id": BACKUP_CHANNEL_ID,
+                "filename": filename,
+                "created_at": datetime.now(timezone.utc),
+                "type": "manual"
+            })
+        except Exception as e:
+            logger.warning(f"Backup channel send failed: {e}")
+        zip_buffer.seek(0)
+        await client.send_document(message.from_user.id, zip_buffer, file_name=filename, caption=caption)
+        await status_msg.delete()
+        await log_action("backup", message.from_user.id, filename)
+    except Exception as e:
+        logger.error(f"Backup error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("restore") & filters.private)
+async def restore_command(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        restore_state[message.from_user.id] = {"step": "waiting_file"}
+        await message.reply("📦 Send the backup ZIP file.\n\nCancel: /start")
+    except Exception as e:
+        logger.error(f"Restore error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.document & filters.private, group=5)
+async def handle_restore_document(client: Client, message: Message):
+    try:
+        user_id = message.from_user.id
+        if user_id not in restore_state:
+            return
+        if restore_state[user_id].get("step") != "waiting_file":
+            return
+        if not message.document.file_name.endswith(".zip"):
+            await message.reply("❌ Only ZIP files are allowed.")
+            return
+        status_msg = await message.reply("📥 Downloading...")
+        file_path = await message.download()
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                file_list = zf.namelist()
+                backup_data = {}
+                for fname in file_list:
+                    if fname.endswith(".json"):
+                        col_name = fname.replace(".json", "")
+                        data = json.loads(zf.read(fname))
+                        backup_data[col_name] = data
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Invalid ZIP file: {e}")
+            restore_state.pop(user_id, None)
+            try: os.remove(file_path)
+            except: pass
+            return
+        preview = "📦 Backup File Info:\n\n"
+        for col_name, data in backup_data.items():
+            preview += f"📁 {col_name}: {len(data)} records\n"
+        preview += "\n⚠️ WARNING: Current data will be replaced!\n\nProceed?"
+        restore_state[user_id] = {"step": "waiting_confirm", "file_path": file_path, "backup_data": backup_data}
+        await status_msg.edit_text(
+            preview,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Yes", callback_data="restore_yes"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="restore_cancel")]
+            ])
+        )
+    except Exception as e:
+        logger.error(f"Restore doc error: {e}")
+        restore_state.pop(message.from_user.id, None)
+
+@app.on_callback_query(filters.regex("^restore_yes$"))
+async def restore_confirm(client: Client, callback: CallbackQuery):
+    try:
+        user_id = callback.from_user.id
+        if user_id not in restore_state:
+            await callback.answer("❌ Session expired!", show_alert=True)
+            return
+        state = restore_state[user_id]
+        if state.get("step") != "waiting_confirm":
+            await callback.answer("❌ Invalid state!", show_alert=True)
+            return
+        backup_data = state["backup_data"]
+        file_path = state.get("file_path")
+        await callback.message.edit_text("🔄 Restoring...")
+        col_map = {
+            "users": users_col,
+            "channels": channels_col,
+            "advertisements": ads_col,
+            "settings": settings_col,
+            "admins": admins_col
+        }
+        restore_report = "📊 Restore Report:\n\n"
+        for col_name, data in backup_data.items():
+            if col_name in col_map:
+                col = col_map[col_name]
+                await col.delete_many({})
+                if data:
+                    for doc in data:
+                        if "_id" in doc and col_name != "settings":
+                            del doc["_id"]
+                        for key, val in doc.items():
+                            if isinstance(val, str):
+                                try:
+                                    doc[key] = datetime.fromisoformat(val)
+                                except:
+                                    pass
+                    try:
+                        await col.insert_many(data)
+                    except Exception as e:
+                        for doc in data:
+                            try:
+                                await col.insert_one(doc)
+                            except:
+                                pass
+                restore_report += f"✅ {col_name}: {len(data)} restored\n"
+        clear_all_cache()
+        restore_state.pop(user_id, None)
+        try:
+            if file_path:
+                os.remove(file_path)
+        except:
+            pass
+        await callback.message.edit_text("✅ Restore Complete!")
+        await log_action("restore", user_id, "Database restored")
+    except Exception as e:
+        logger.error(f"Restore confirm error: {e}")
+        await callback.message.edit_text(f"❌ Restore Error: {e}")
+        restore_state.pop(callback.from_user.id, None)
+
+@app.on_callback_query(filters.regex("^restore_cancel$"))
+async def restore_cancel(client: Client, callback: CallbackQuery):
+    try:
+        user_id = callback.from_user.id
+        state = restore_state.pop(user_id, None)
+        if state and state.get("file_path"):
+            try:
+                os.remove(state["file_path"])
+            except:
+                pass
+        await callback.message.edit_text("❌ Restore cancelled.")
+    except Exception as e:
+        logger.error(f"Restore cancel error: {e}")
+
+# --- Maintenance ---
+@app.on_message(filters.command("maintenance") & filters.private)
+async def maintenance_mode(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /maintenance on/off")
+            return
+        mode = message.command[1].lower()
+        if mode == "on":
+            await settings_col.update_one({"_id": "maintenance"}, {"$set": {"enabled": True}}, upsert=True)
+            await message.reply("🔧 Maintenance mode ON")
+        elif mode == "off":
+            await settings_col.update_one({"_id": "maintenance"}, {"$set": {"enabled": False}}, upsert=True)
+            await message.reply("✅ Maintenance mode OFF")
+        else:
+            await message.reply("❌ Use 'on' or 'off'.")
+        await log_action("maintenance", message.from_user.id, f"Mode: {mode}")
+    except Exception as e:
+        logger.error(f"Maintenance error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Logs ---
+@app.on_message(filters.command("logs") & filters.private)
+async def view_logs(client: Client, message: Message):
+    try:
+        if not await is_admin(message.from_user.id):
+            await message.reply("❌ Only admins can use this.")
+            return
+        logs = await logs_col.find().sort("timestamp", -1).limit(20).to_list(length=20)
+        if not logs:
+            await message.reply("No logs found.")
+            return
+        text = "📋 Recent Logs (Last 20):\n\n"
+        for log in logs:
+            ts = log.get("timestamp", "N/A")
+            if isinstance(ts, datetime):
+                ts = ts.strftime("%d/%m %H:%M")
+            text += f"⏱️ {ts}\n📌 {log.get('action', 'N/A')}\n👤 {log.get('user_id', 'N/A')}\n📝 {log.get('details', '')}\n{'─'*25}\n"
+        for part in split_message(text):
+            await message.reply(part)
+        await log_action("logs", message.from_user.id)
+    except Exception as e:
+        logger.error(f"Logs error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Admin Management ---
+@app.on_message(filters.command("addmin") & filters.private)
+async def add_admin(client: Client, message: Message):
+    try:
+        if not await is_owner(message.from_user.id):
+            await message.reply("❌ Only owner can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /addmin user_id or @username")
+            return
+        target = message.command[1]
+        try:
+            if target.startswith("@"):
+                user_obj = await client.get_users(target)
+            else:
+                user_obj = await client.get_users(int(target))
+            target_id = user_obj.id
+            target_name = user_obj.first_name
+            target_username = user_obj.username
+        except Exception as e:
+            await message.reply(f"❌ User not found: {e}")
+            return
+        if target_id == OWNER_ID:
+            await message.reply("ℹ️ Owner already has full access.")
+            return
+        existing = await admins_col.find_one({"user_id": target_id})
+        if existing:
+            await message.reply("⚠️ User is already an admin.")
+            return
+        await admins_col.insert_one({
+            "user_id": target_id,
+            "name": target_name,
+            "username": target_username,
+            "added_by": message.from_user.id,
+            "added_at": datetime.now(timezone.utc)
+        })
+        await message.reply(f"✅ Admin added: {target_name} (@{target_username})")
+        await log_action("admin_added", message.from_user.id, f"Target: {target_id}")
+    except Exception as e:
+        logger.error(f"Add admin error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("radmin") & filters.private)
+async def remove_admin(client: Client, message: Message):
+    try:
+        if not await is_owner(message.from_user.id):
+            await message.reply("❌ Only owner can use this.")
+            return
+        if len(message.command) < 2:
+            await message.reply("❌ Usage: /radmin user_id or @username")
+            return
+        target = message.command[1]
+        try:
+            if target.startswith("@"):
+                user_obj = await client.get_users(target)
+                target_id = user_obj.id
+            else:
+                target_id = int(target)
+        except Exception as e:
+            await message.reply(f"❌ Error: {e}")
+            return
+        result = await admins_col.delete_one({"user_id": target_id})
+        if result.deleted_count > 0:
+            await message.reply(f"✅ Admin {target_id} removed.")
+        else:
+            await message.reply(f"❌ User {target_id} is not an admin.")
+        await log_action("admin_removed", message.from_user.id, f"Target: {target_id}")
+    except Exception as e:
+        logger.error(f"Remove admin error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("ladmin") & filters.private)
+async def list_admins(client: Client, message: Message):
+    try:
+        if not await is_owner(message.from_user.id):
+            await message.reply("❌ Only owner can use this.")
+            return
+        admins = await admins_col.find().to_list(length=None)
+        text = f"👑 Admin List:\n\n1. 👑 Owner\n   🆔 {OWNER_ID}\n\n"
+        for i, admin in enumerate(admins, 2):
+            added_at = admin.get("added_at", "N/A")
+            if isinstance(added_at, datetime):
+                added_at = added_at.strftime("%d %b %Y %H:%M")
+            text += f"{i}. 🛡️ {admin.get('name', 'Unknown')}\n   📛 @{admin.get('username', 'N/A')}\n   🆔 {admin['user_id']}\n   📅 Added: {added_at}\n\n"
+        text += f"Total: {len(admins)+1} (including owner)"
+        await message.reply(text)
+        await log_action("list_admins", message.from_user.id)
+    except Exception as e:
+        logger.error(f"List admins error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Help ---
+@app.on_message(filters.command("help") & (filters.private | filters.group))
+async def help_command(client: Client, message: Message):
+    try:
+        user_id = message.from_user.id
+        if await is_owner(user_id):
+            text = "👑 Owner Commands:\n/addmin, /radmin, /ladmin\n\n🛡️ Admin Commands:\n/verify, /unverify, /channels, /list, /broadcast, /addad, /removead, /listads, /adstats, /ban, /unban, /userinfo, /addfj, /removefj, /listfj, /stats, /channelstats, /searchstats, /backup, /restore, /maintenance, /logs\n\nSearch:\n/search, /anime, /a, /s\n\nFilters:\n/addfilter, /editfilter, /delfilter, /listfilters, /filterstats, /addreply, /delreply, /filtergroup, /exportfilters, /importfilters\n\nAnti-Link:\n/antilink, /addwhitelist, /delwhitelist, /whitelist, /linkstats"
+        elif await is_admin(user_id):
+            text = "🛡️ Admin Commands:\n/verify, /unverify, /channels, /list, /broadcast, /addad, /removead, /listads, /adstats, /ban, /unban, /userinfo, /addfj, /removefj, /listfj, /stats, /channelstats, /searchstats, /backup, /restore, /maintenance, /logs\n\nSearch:\n/search, /anime, /a, /s\n\nFilters:\n/addfilter, /editfilter, /delfilter, /listfilters, /filterstats, /addreply, /delreply, /filtergroup, /exportfilters, /importfilters\n\nAnti-Link:\n/antilink, /addwhitelist, /delwhitelist, /whitelist, /linkstats"
+        else:
+            text = "🔍 Search Bot Help:\n\nDM: Just type any keyword.\n\nGroup:\n/search anime\n/anime Fairy Tail\n/a Dragon Ball\n/s One Piece\n\nFilters: /listfilters, /filterstats"
+        await message.reply(text)
+        await log_action("help", user_id)
+    except Exception as e:
+        logger.error(f"Help error: {e}")
+        await message.reply(f"❌ Error: {e}")
+
+# --- Search Commands (Bio & Name) ---
+def fuzzy_match(search_query, target_text, threshold=FUZZY_THRESHOLD):
+    if not search_query or not target_text:
+        return False
+    search_lower = search_query.lower().strip()
+    target_lower = target_text.lower().strip()
+    # Simple check: word boundary or prefix
+    if search_lower in target_lower:
+        return True
+    search_words = search_lower.split()
+    target_words = target_lower.split()
+    for sw in search_words:
+        for tw in target_words:
+            if tw.startswith(sw):
+                return True
+    return False
+
+@app.on_message(filters.text & filters.private & ~filters.command(ALL_COMMANDS))
+async def search_handler(client: Client, message: Message):
+    try:
+        keyword = message.text.strip()
+        if len(keyword) < 2:
+            await message.reply("❌ Minimum 2 characters.")
+            return
+        await perform_search(client, message, keyword)
+    except Exception as e:
+        logger.error(f"Search handler error: {e}")
+
+@app.on_message(filters.command(["search", "anime", "a", "s"]) & (filters.private | filters.group))
+async def group_search_handler(client: Client, message: Message):
+    try:
+        if len(message.command) < 2:
+            await message.reply("❌ Provide a keyword.\nExample: /search Naruto")
+            return
+        keyword = message.text.split(None, 1)[1].strip()
+        if len(keyword) < 2:
+            await message.reply("❌ Minimum 2 characters.")
+            return
+        await perform_search(client, message, keyword)
+    except Exception as e:
+        logger.error(f"Group search error: {e}")
+        await message.reply("❌ Error.")
+
+async def perform_search(client: Client, message: Message, keyword: str):
+    try:
+        user_id = message.from_user.id
+        await save_user(user_id, message.from_user.username, message.from_user.first_name)
+        # Check force join
+        is_joined, not_joined = await check_force_join(client, user_id)
+        if not is_joined:
+            buttons = []
+            for ch in not_joined:
+                buttons.append([InlineKeyboardButton(f"📢 {ch.get('title')}", url=ch.get("invite_url"))])
+            buttons.append([InlineKeyboardButton("✅ I Joined", callback_data="check_join")])
+            await message.reply("⚠️ Please join required channels first.", reply_markup=InlineKeyboardMarkup(buttons))
+            return
+        user_doc = await users_col.find_one({"user_id": user_id})
+        if user_doc and user_doc.get("is_banned", False):
+            await message.reply("🚫 You are banned.")
+            return
+        if not check_rate_limit(user_id):
+            await message.reply("⚠️ Rate limit exceeded. Try again later.")
+            return
+        searching_msg = await message.reply("🔍 Searching...")
+        cached = get_cached_results(keyword)
+        if cached is not None:
+            matched_channels = cached
+        else:
+            all_channels = await channels_col.find({"status": "active"}).to_list(length=None)
+            matched_channels = []
+            for ch in all_channels:
+                bio = ch.get("bio", "") or ""
+                title = ch.get("title", "") or ""
+                if fuzzy_match(keyword, bio) or fuzzy_match(keyword, title):
+                    matched_channels.append(ch)
+            set_cache(keyword, matched_channels)
+        if not matched_channels:
+            await searching_msg.edit_text(f"❌ No channels found for: {keyword}")
+            return
+        display_channels = matched_channels[:SEARCH_RESULT_LIMIT]
+        response_text = f"🔍 Results for: {keyword}\n\n"
+        buttons = []
+        for ad in await get_active_ads():
+            buttons.append([InlineKeyboardButton(ad.get("button_text"), url=ad.get("url"))])
+            await ads_col.update_one({"_id": ad["_id"]}, {"$inc": {"impressions": 1}})
+        success_channels = []
+        for ch in display_channels:
+            try:
+                link = await get_or_create_invite_link(client, ch["channel_id"], ch.get("is_private", True))
+                response_text += f"📌 {ch['title']}\n"
+                buttons.append([InlineKeyboardButton(f"🔗 {ch['title']}", url=link)])
+                success_channels.append(ch)
+            except Exception as e:
+                logger.error(f"Link fail for {ch.get('title')}: {e}")
+                await notify_link_fail(client, ch["channel_id"], ch.get("title", "Unknown"), str(e))
+                continue
+        if not success_channels:
+            await searching_msg.edit_text("⚠️ Link generation failed. Try again later.")
+            return
+        response_text += f"\nFound {len(success_channels)} channel(s)"
+        await searching_msg.delete()
+        sent_msg = await message.reply(response_text, reply_markup=InlineKeyboardMarkup(buttons))
+        await search_results_col.insert_one({
+            "user_id": user_id,
+            "chat_id": message.chat.id,
+            "message_id": sent_msg.id,
+            "expires_at": datetime.now(timezone.utc) + timedelta(seconds=LINK_EXPIRY_SECONDS)
+        })
+        await users_col.update_one({"user_id": user_id}, {"$inc": {"searches_count": 1}})
+        await log_action("search", user_id, f"Query: {keyword}, Found: {len(success_channels)}")
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        await message.reply("❌ Error in search.")
+
+# --- Invite Link Helpers (used in search) ---
+async def get_or_create_invite_link(client, channel_id, is_private):
+    now = datetime.now(timezone.utc)
+    existing = await invite_links_col.find_one({
+        "channel_id": channel_id,
+        "status": "active",
+        "reuse_until": {"$gt": now}
+    })
+    if existing:
+        return existing["invite_link"]
+    if is_private:
+        invite = await client.create_chat_invite_link(
+            chat_id=channel_id,
+            creates_join_request=True,
+            expire_date=now + timedelta(seconds=LINK_EXPIRY_SECONDS),
+            name=f"search_{int(time.time())}"
+        )
+    else:
+        invite = await client.create_chat_invite_link(
+            chat_id=channel_id,
+            expire_date=now + timedelta(seconds=LINK_EXPIRY_SECONDS),
+            name=f"search_{int(time.time())}"
+        )
+    await invite_links_col.insert_one({
+        "channel_id": channel_id,
+        "invite_link": invite.invite_link,
+        "is_private": is_private,
+        "created_at": now,
+        "expires_at": now + timedelta(seconds=LINK_EXPIRY_SECONDS),
+        "reuse_until": now + timedelta(seconds=LINK_REUSE_WINDOW),
+        "status": "active"
+    })
+    return invite.invite_link
+
+async def notify_link_fail(client, channel_id, title, error):
+    msg = f"⚠️ Link Generate Failed!\n\n📢 Channel: {title}\n🆔 {channel_id}\n❌ Error: {error}"
+    try:
+        await client.send_message(OWNER_ID, msg)
+    except:
+        pass
+    async for admin in admins_col.find():
+        try:
+            await client.send_message(admin["user_id"], msg)
+        except:
+            pass
+
+def get_cached_results(keyword):
+    key = keyword.lower().strip()
+    if key in search_cache and time.time() - search_cache[key]["time"] < SEARCH_CACHE_TTL:
+        return search_cache[key]["results"]
+    return None
+
+def set_cache(keyword, results):
+    key = keyword.lower().strip()
+    search_cache[key] = {"results": results, "time": time.time()}
+
+def clear_all_cache():
+    search_cache.clear()
+
+# --- Scheduled Tasks ---
+async def cleanup_expired_links():
+    try:
+        now = datetime.now(timezone.utc)
+        expired_links = await invite_links_col.find({"status": "active", "expires_at": {"$lte": now}}).to_list(length=100)
+        for link in expired_links:
+            try:
+                await app.revoke_chat_invite_link(link["channel_id"], link["invite_link"])
+            except:
+                pass
+            await invite_links_col.update_one({"_id": link["_id"]}, {"$set": {"status": "expired"}})
+        expired_results = await search_results_col.find({"expires_at": {"$lte": now}}).to_list(length=100)
+        for result in expired_results:
+            try:
+                await app.delete_messages(result["chat_id"], result["message_id"])
+            except:
+                pass
+            await search_results_col.delete_one({"_id": result["_id"]})
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
+async def reset_daily_violations():
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        result = await antilink_violations_col.delete_many({"date": {"$lt": cutoff}})
+        if result.deleted_count > 0:
+            logger.info(f"Reset {result.deleted_count} violations")
+    except Exception as e:
+        logger.error(f"Reset violations error: {e}")
 
 # ============================================================
-# OTHER COMMANDS (Verify, Unverify, Channels, List, Broadcast, Ads, Ban, Unban, Userinfo, Force Join, Stats, Backup, Restore, Maintenance, Logs, Admin Management, Search Commands)
-# ============================================================
-
-# I will provide a complete set of these handlers – they are the same as in the original code.
-# Since the full code is huge, I will include a placeholder note here. In the actual answer, I will paste the entire code.
-
-# In reality, I will give the entire code as a single block in the response.
-
-# ============================================================
-# DUMMY WEB SERVER FOR RENDER
+# DUMMY WEB SERVER FOR RENDER (Web Service)
 # ============================================================
 
 async def health(request):
@@ -1122,6 +2206,7 @@ async def start_web_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"Web server running on port {port}")
+    # Keep running forever
     await asyncio.Event().wait()
 
 # ============================================================
