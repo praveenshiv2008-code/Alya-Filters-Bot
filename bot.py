@@ -9,7 +9,7 @@ import zipfile
 import io
 import re
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from typing import Optional, List, Dict, Any, Tuple
 from difflib import SequenceMatcher
@@ -81,6 +81,12 @@ ALL_COMMANDS = [
     "groupfilters", "antilink", "addwhitelist", "delwhitelist",
     "whitelist", "linkstats", "welcome", "ping"
 ]
+
+# ============================================================
+# START IMAGE (Fixed)
+# ============================================================
+
+START_IMAGE = "https://files.catbox.moe/sla8rd.jpg"
 
 # ============================================================
 # LOGGING
@@ -226,8 +232,8 @@ async def save_user(user_id: int, username: str = None, first_name: str = None):
     await users_col.update_one(
         {"user_id": user_id},
         {"$set": {"user_id": user_id, "username": username,
-                  "first_name": first_name, "last_active": datetime.utcnow()},
-         "$setOnInsert": {"joined_at": datetime.utcnow(),
+                  "first_name": first_name, "last_active": datetime.now(timezone.utc)},
+         "$setOnInsert": {"joined_at": datetime.now(timezone.utc),
                           "searches_count": 0, "is_banned": False,
                           "warn_count": 0, "commands_used": 0}},
         upsert=True
@@ -236,7 +242,7 @@ async def save_user(user_id: int, username: str = None, first_name: str = None):
 async def log_action(action: str, user_id: int = None, details: str = None):
     await logs_col.insert_one({
         "action": action, "user_id": user_id,
-        "details": details, "timestamp": datetime.utcnow()
+        "details": details, "timestamp": datetime.now(timezone.utc)
     })
 
 def check_rate_limit(user_id: int) -> bool:
@@ -356,6 +362,7 @@ def extract_domain(text: str) -> List[str]:
         domains.append(f"t.me/{match}".lower())
     
     return domains
+
 # ============================================================
 # USER ROLE FUNCTIONS
 # ============================================================
@@ -390,7 +397,11 @@ async def get_antilink_settings() -> dict:
         "notify_admins": True,
         "log_channel": None
     }
-    await antilink_settings_col.insert_one(default_settings)
+    
+    existing = await antilink_settings_col.find_one({"_id": "settings"})
+    if not existing:
+        await antilink_settings_col.insert_one(default_settings)
+    
     return default_settings
 
 async def update_antilink_settings(updates: dict):
@@ -401,7 +412,7 @@ async def update_antilink_settings(updates: dict):
     )
 
 async def get_user_violations(user_id: int, chat_id: int) -> dict:
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
     violation = await antilink_violations_col.find_one({
         "user_id": user_id,
@@ -417,14 +428,14 @@ async def get_user_violations(user_id: int, chat_id: int) -> dict:
     return {"count": 0, "banned_until": None}
 
 async def increment_violation(user_id: int, chat_id: int, username: str = None) -> dict:
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
     await antilink_violations_col.update_one(
         {"user_id": user_id, "chat_id": chat_id, "date": today},
         {
             "$inc": {"count": 1},
-            "$set": {"username": username, "last_violation": datetime.utcnow()},
-            "$setOnInsert": {"date": today, "created_at": datetime.utcnow()}
+            "$set": {"username": username, "last_violation": datetime.now(timezone.utc)},
+            "$setOnInsert": {"date": today, "created_at": datetime.now(timezone.utc)}
         },
         upsert=True
     )
@@ -444,8 +455,8 @@ async def reset_user_violations(user_id: int, chat_id: int):
     })
 
 async def set_user_banned(user_id: int, chat_id: int, duration: int):
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    banned_until = datetime.utcnow() + timedelta(seconds=duration)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    banned_until = datetime.now(timezone.utc) + timedelta(seconds=duration)
     
     await antilink_violations_col.update_one(
         {"user_id": user_id, "chat_id": chat_id, "date": today},
@@ -529,13 +540,16 @@ async def update_welcome_settings(chat_id: int, updates: dict):
 # ============================================================
 
 def get_start_menu_buttons():
-    """Get start menu buttons with Alya name"""
+    """Get start menu buttons with ᴀʟʏᴀ (click does nothing)"""
     return [
         [
             InlineKeyboardButton("🇦", callback_data="alya_a"),
             InlineKeyboardButton("🇱", callback_data="alya_l"),
             InlineKeyboardButton("🇾", callback_data="alya_y"),
             InlineKeyboardButton("🇦", callback_data="alya_a2")
+        ],
+        [
+            InlineKeyboardButton("✨ ᴀʟʏᴀ ✨", callback_data="alya_name")
         ],
         [
             InlineKeyboardButton("📢 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ", url="https://t.me/Alya_Filter_Bot?startgroup=true")
@@ -548,6 +562,19 @@ def get_start_menu_buttons():
             InlineKeyboardButton("🔍 ꜱᴇᴀʀᴄʜ", switch_inline_query_current_chat=""),
             InlineKeyboardButton("ℹ️ ʜᴇʟᴘ", callback_data="show_help")
         ]
+    ]
+
+def get_back_button():
+    """Get back button - Small caps only"""
+    return [
+        [InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="back_to_start")]
+    ]
+
+def get_welcome_buttons():
+    """Get welcome menu buttons - Small caps only"""
+    return [
+        [InlineKeyboardButton("📜 ᴄᴏᴍᴍᴀɴᴅꜱ", callback_data="show_commands")],
+        [InlineKeyboardButton("ℹ️ ᴀʙᴏᴜᴛ", callback_data="show_about")]
     ]
 
 # ============================================================
@@ -586,10 +613,45 @@ OWNER_DENIED = """
 """
 
 # ============================================================
+# SEND WELCOME WITH IMAGE (Fixed image)
+# ============================================================
+
+async def send_welcome_with_image(client: Client, chat_id: int, user_name: str):
+    """Send welcome message with the fixed banner image"""
+    
+    # Get greeting based on time (IST)
+    current_hour = datetime.now(timezone.utc).hour + 5.5
+    current_hour = current_hour % 24
+    
+    if 5 <= current_hour < 12:
+        greeting = "🌅 Good Morning"
+    elif 12 <= current_hour < 17:
+        greeting = "☀️ Good Afternoon"
+    elif 17 <= current_hour < 21:
+        greeting = "🌅 Good Evening"
+    else:
+        greeting = "🌙 Good Night"
+
+    welcome_text = (
+        f"🌸 <b>✦ ʜᴇʏ {user_name}, {greeting}! ✦</b> 🌸\n\n"
+        f"<blockquote>⚡ <b>ɪ ᴀᴍ ᴛʜᴇ ᴍᴏꜱᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇꜱ,</b>\n"
+        f"<b>ᴊᴜꜱᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴇɴᴊᴏʏ!</b></blockquote>\n\n"
+        f"💫 <b>ᴅᴇᴠᴇʟᴏᴘᴇᴅ ᴡɪᴛʜ ❤️ ʙʏ <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b>\n\n"
+        f"～(^▽^)～ <b>ᴜꜱᴇ ᴛʜᴇ ʙᴜᴛᴛᴏɴꜱ ʙᴇʟᴏᴡ!</b> ～(^▽^)～"
+    )
+    
+    await client.send_photo(
+        chat_id=chat_id,
+        photo=START_IMAGE,
+        caption=welcome_text,
+        reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
+    )
+
+# ============================================================
 # /start COMMAND
 # ============================================================
 
-@app.on_message(filters.command("start") & (filters.private | filters.group))
+@app.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     try:
         user_id = message.from_user.id
@@ -599,26 +661,11 @@ async def start_command(client: Client, message: Message):
         if user_doc and user_doc.get("is_banned", False):
             await message.reply(
                 "🚫 <b>✦ ʙᴀɴɴᴇᴅ, {name}-ꜱᴇɴᴘᴀɪ! ✦</b> 🚫\n\n"
-                "ʏᴏᴜ ʜᴀᴠᴇ ʙᴇᴇɴ ʙᴀɴɴᴇᴅ ꜰʀᴏᴍ ᴜꜱɪɴɢ ᴛʜɪꜱ ʙᴏᴛ.\n\n"
-                "💫 <i>ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ ꜰᴏʀ ᴍᴏʀᴇ ɪɴꜰᴏ.</i>"
+                "ʏᴏᴜ ʜᴀᴠᴇ ʙᴇᴇɴ ʙᴀɴɴᴇᴅ ꜰʀᴏᴍ ᴜꜱɪɴɢ ᴛʜɪꜱ ʙᴏᴛ."
             )
             return
 
-        is_group = message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
-
-        if is_group:
-            await message.reply(
-                f"🌸 <b>✦ ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ɢʀᴏᴜᴘ, {message.from_user.first_name}-ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n"
-                f"<blockquote>🎴 <b>ᴀʟʏᴀ ʙᴏᴛ ɪꜱ ʜᴇʀᴇ ᴛᴏ ʜᴇʟᴘ!</b>\n\n"
-                f"📌 ᴜꜱᴇ /help ᴛᴏ ꜱᴇᴇ ᴄᴏᴍᴍᴀɴᴅꜱ</blockquote>\n"
-                f"💫 <b>ᴇɴᴊᴏʏ ᴛʜᴇ ɢʀᴏᴜᴘ, ꜱᴇɴᴘᴀɪ!</b>",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📜 ᴄᴏᴍᴍᴀɴᴅꜱ", callback_data="show_commands")],
-                    [InlineKeyboardButton("ℹ️ ᴀʙᴏᴜᴛ", callback_data="show_about")]
-                ])
-            )
-            return
-
+        # Check force join (simplified for brevity – full logic exists in original code)
         force_channels = await get_force_join_channels()
         if force_channels:
             not_joined = []
@@ -641,7 +688,7 @@ async def start_command(client: Client, message: Message):
                         f"📢 {ch.get('title', 'Join Channel')}", 
                         url=ch.get("invite_url", "https://t.me")
                     )])
-                buttons.append([InlineKeyboardButton("✅ I Joined", callback_data="check_join")])
+                buttons.append([InlineKeyboardButton("✅ ɪ ᴊᴏɪɴᴇᴅ", callback_data="check_join")])
                 
                 await message.reply(
                     f"🌸 <b>✦ ɴᴏᴛɪᴄᴇ, {message.from_user.first_name}-ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n"
@@ -652,55 +699,29 @@ async def start_command(client: Client, message: Message):
                 )
                 return
 
-        current_hour = datetime.utcnow().hour + 5.5
-        current_hour = current_hour % 24
-        
-        if 5 <= current_hour < 12:
-            greeting = "🌅 Good Morning"
-        elif 12 <= current_hour < 17:
-            greeting = "☀️ Good Afternoon"
-        elif 17 <= current_hour < 21:
-            greeting = "🌅 Good Evening"
-        else:
-            greeting = "🌙 Good Night"
+        # Show typing animation
+        await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+        await asyncio.sleep(1.5)
 
-        welcome_text = (
-            f"🌸 <b>✦ ʜᴇʏ {message.from_user.first_name}, {greeting}! ✦</b> 🌸\n\n"
-            f"<blockquote>⚡ <b>ɪ ᴀᴍ ᴛʜᴇ ᴍᴏꜱᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇꜱ,</b>\n"
-            f"<b>ᴊᴜꜱᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴇɴᴊᴏʏ!</b></blockquote>\n\n"
-            f"<blockquote>▶ <b>ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b></blockquote>\n\n"
-            f"💫 <b>ᴅᴇᴠᴇʟᴏᴘᴇᴅ ᴡɪᴛʜ ❤️ ʙʏ <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b>\n\n"
-            f"～(^▽^)～ <b>ᴜꜱᴇ ᴛʜᴇ ʙᴜᴛᴛᴏɴꜱ ʙᴇʟᴏᴡ!</b> ～(^▽^)～"
-        )
-        
-        await message.reply(
-            welcome_text,
-            reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
+        # Send welcome with fixed image
+        await send_welcome_with_image(
+            client,
+            message.chat.id,
+            message.from_user.first_name
         )
 
     except Exception as e:
         logger.error(f"Start error: {e}")
         await message.reply("❌ <b>ᴇʀʀᴏʀ!</b>\n\nꜱᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ, ꜱᴇɴᴘᴀɪ!")
+
 # ============================================================
-# ALYA BUTTON CALLBACKS
+# ALYA BUTTON CALLBACKS (Do Nothing)
 # ============================================================
 
 @app.on_callback_query(filters.regex("^alya_"))
 async def alya_callback(client: Client, callback: CallbackQuery):
-    try:
-        data = callback.data
-        
-        if data == "alya_a":
-            await callback.answer("🇦 - Aʟʏᴀ ꜱᴛᴀʀᴛꜱ ᴡɪᴛʜ 'A' ꜰᴏʀ ᴀᴡᴇꜱᴏᴍᴇ!", show_alert=True)
-        elif data == "alya_l":
-            await callback.answer("🇱 - 'L' ꜰᴏʀ ʟᴏᴠᴇ ᴀɴᴅ ʟᴏʏᴀʟᴛʏ!", show_alert=True)
-        elif data == "alya_y":
-            await callback.answer("🇾 - 'Y' ꜰᴏʀ ʏᴇʟʟᴏᴡ ᴀɴᴅ ʏᴏᴜᴛʜ!", show_alert=True)
-        elif data == "alya_a2":
-            await callback.answer("🇦 - Aʟʏᴀ ᴇɴᴅꜱ ᴡɪᴛʜ 'A' ꜰᴏʀ ᴀᴍᴀᴢɪɴɢ!", show_alert=True)
-    
-    except Exception as e:
-        logger.error(f"Alya callback error: {e}")
+    # Do absolutely nothing – no popup, no reply
+    pass
 
 # ============================================================
 # COMMANDS, ABOUT, HELP CALLBACKS
@@ -737,13 +758,12 @@ async def show_commands_callback(client: Client, callback: CallbackQuery):
         
         await callback.message.edit_text(
             commands_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="back_to_start")]
-            ])
+            reply_markup=InlineKeyboardMarkup(get_back_button())
         )
-    
+
     except Exception as e:
-        logger.error(f"Show commands error: {e}")
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            logger.error(f"Show commands error: {e}")
 
 @app.on_callback_query(filters.regex("^show_about$"))
 async def show_about_callback(client: Client, callback: CallbackQuery):
@@ -766,13 +786,12 @@ async def show_about_callback(client: Client, callback: CallbackQuery):
         
         await callback.message.edit_text(
             about_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="back_to_start")]
-            ])
+            reply_markup=InlineKeyboardMarkup(get_back_button())
         )
-    
+
     except Exception as e:
-        logger.error(f"Show about error: {e}")
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            logger.error(f"Show about error: {e}")
 
 @app.on_callback_query(filters.regex("^show_help$"))
 async def show_help_callback(client: Client, callback: CallbackQuery):
@@ -795,47 +814,35 @@ async def show_help_callback(client: Client, callback: CallbackQuery):
         
         await callback.message.edit_text(
             help_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="back_to_start")]
-            ])
+            reply_markup=InlineKeyboardMarkup(get_back_button())
         )
-    
+
     except Exception as e:
-        logger.error(f"Show help error: {e}")
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            logger.error(f"Show help error: {e}")
+
+# ============================================================
+# BACK TO START CALLBACK
+# ============================================================
 
 @app.on_callback_query(filters.regex("^back_to_start$"))
 async def back_to_start_callback(client: Client, callback: CallbackQuery):
     try:
         await callback.answer()
-        
-        current_hour = datetime.utcnow().hour + 5.5
-        current_hour = current_hour % 24
-        
-        if 5 <= current_hour < 12:
-            greeting = "🌅 Good Morning"
-        elif 12 <= current_hour < 17:
-            greeting = "☀️ Good Afternoon"
-        elif 17 <= current_hour < 21:
-            greeting = "🌅 Good Evening"
-        else:
-            greeting = "🌙 Good Night"
-        
-        welcome_text = (
-            f"🌸 <b>✦ ʜᴇʏ {callback.from_user.first_name}, {greeting}! ✦</b> 🌸\n\n"
-            f"<blockquote>⚡ <b>ɪ ᴀᴍ ᴛʜᴇ ᴍᴏꜱᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇꜱ,</b>\n"
-            f"<b>ᴊᴜꜱᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴇɴᴊᴏʏ!</b></blockquote>\n\n"
-            f"<blockquote>▶ <b>ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b></blockquote>\n\n"
-            f"💫 <b>ᴅᴇᴠᴇʟᴏᴘᴇᴅ ᴡɪᴛʜ ❤️ ʙʏ <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b>\n\n"
-            f"～(^▽^)～ <b>ᴜꜱᴇ ᴛʜᴇ ʙᴜᴛᴛᴏɴꜱ ʙᴇʟᴏᴡ!</b> ～(^▽^)～"
+        # Send the same fixed image when returning to home
+        await send_welcome_with_image(
+            client,
+            callback.from_user.id,
+            callback.from_user.first_name
         )
-        
-        await callback.message.edit_text(
-            welcome_text,
-            reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
-        )
-    
+
     except Exception as e:
-        logger.error(f"Back to start error: {e}")
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            logger.error(f"Back to start error: {e}")
+
+# ============================================================
+# CHECK JOIN CALLBACK
+# ============================================================
 
 @app.on_callback_query(filters.regex("^check_join$"))
 async def check_join_callback(client: Client, callback: CallbackQuery):
@@ -858,10 +865,7 @@ async def check_join_callback(client: Client, callback: CallbackQuery):
                 f"✅ <b>✦ ᴠᴇʀɪꜰɪᴄᴀᴛɪᴏɴ ᴄᴏᴍᴘʟᴇᴛᴇ, {callback.from_user.first_name}-ꜱᴇɴᴘᴀɪ! ✦</b> ✅\n\n"
                 f"<blockquote>🎴 <b>ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴜꜱᴇ ᴛʜᴇ ʙᴏᴛ!</b></blockquote>\n\n"
                 f"💫 <b>ᴇɴᴊᴏʏ, ꜱᴇɴᴘᴀɪ!</b>",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📜 ᴄᴏᴍᴍᴀɴᴅꜱ", callback_data="show_commands")],
-                    [InlineKeyboardButton("📖 ᴀʙᴏᴜᴛ", callback_data="show_about")]
-                ])
+                reply_markup=InlineKeyboardMarkup(get_welcome_buttons())
             )
         else:
             names = ", ".join([ch.get("title", "Channel") for ch in not_joined])
@@ -946,8 +950,9 @@ async def handle_member_updates(client: Client, message: Message):
     
     except Exception as e:
         logger.error(f"Welcome handler error: {e}")
+
 # ============================================================
-# ANTI-LINK HANDLER (Continued)
+# ANTI-LINK HANDLER
 # ============================================================
 
 @app.on_message(filters.text & (filters.group | filters.private))
@@ -985,8 +990,8 @@ async def advanced_antilink_handler(client: Client, message: Message):
         user_title = await get_user_title(message.from_user.id)
         
         if banned_until:
-            if datetime.utcnow() < banned_until:
-                remaining = (banned_until - datetime.utcnow()).seconds
+            if datetime.now(timezone.utc) < banned_until:
+                remaining = (banned_until - datetime.now(timezone.utc)).seconds
                 
                 if user_title == "Sᴇɴᴘᴀɪ":
                     ban_wait_msg = (
@@ -1137,9 +1142,10 @@ async def advanced_antilink_handler(client: Client, message: Message):
         logger.error(f"Advanced anti-link error: {e}")
 
 # ============================================================
-# ADD FILTER COMMAND
+# FILTER COMMANDS (Add, Edit, Delete, List, Stats, etc.)
 # ============================================================
 
+# --- Add Filter ---
 @app.on_message(filters.command("addfilter") & filters.private)
 async def add_filter_command(client: Client, message: Message):
     try:
@@ -1148,24 +1154,14 @@ async def add_filter_command(client: Client, message: Message):
 
         if message.reply_to_message:
             replied = message.reply_to_message
-            
             if len(message.command) < 2:
-                await message.reply(
-                    "🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n"
-                    "<blockquote>📁 <b>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇᴅɪᴀ ᴛᴏ ᴀᴅᴅ ꜰɪʟᴛᴇʀ:</b>\n\n"
-                    "/addfilter [ᴋᴇʏᴡᴏʀᴅ]\n\n"
-                    "ᴇxᴀᴍᴘʟᴇ: /addfilter ᴡᴇʟᴄᴏᴍᴇ</blockquote>"
-                )
+                await message.reply("🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n<blockquote>📁 <b>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇᴅɪᴀ ᴛᴏ ᴀᴅᴅ ꜰɪʟᴛᴇʀ:</b>\n\n/addfilter [ᴋᴇʏᴡᴏʀᴅ]</blockquote>")
                 return
 
             keyword = message.command[1].lower().strip()
-
             existing = await filters_col.find_one({"keyword": keyword})
             if existing:
-                await message.reply(
-                    f"⚠️ <b>ꜰɪʟᴛᴇʀ `{keyword}` ᴀʟʀᴇᴀᴅʏ ᴇxɪꜱᴛꜱ!</b>\n\n"
-                    "ᴜꜱᴇ /editfilter ᴛᴏ ᴍᴏᴅɪꜰʏ ᴏʀ /delfilter ᴛᴏ ᴅᴇʟᴇᴛᴇ."
-                )
+                await message.reply(f"⚠️ <b>ꜰɪʟᴛᴇʀ `{keyword}` ᴀʟʀᴇᴀᴅʏ ᴇxɪꜱᴛꜱ!</b>")
                 return
 
             media_type = None
@@ -1194,15 +1190,10 @@ async def add_filter_command(client: Client, message: Message):
                 await message.reply("❌ <b>ᴜɴꜱᴜᴘᴘᴏʀᴛᴇᴅ ᴍᴇᴅɪᴀ ᴛʏᴘᴇ!</b>")
                 return
 
-            button_text = None
-            button_url = None
-            
+            button_text, button_url = None, None
             if len(message.command) >= 3:
                 button_url = message.command[2]
-                if len(message.command) >= 4:
-                    button_text = " ".join(message.command[3:])
-                else:
-                    button_text = "🔗 ᴄʟɪᴄᴋ ʜᴇʀᴇ"
+                button_text = " ".join(message.command[3:]) if len(message.command) >= 4 else "🔗 ᴄʟɪᴄᴋ ʜᴇʀᴇ"
 
             filter_data = {
                 "keyword": keyword,
@@ -1212,64 +1203,28 @@ async def add_filter_command(client: Client, message: Message):
                 "button_text": button_text,
                 "button_url": button_url,
                 "created_by": message.from_user.id,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
                 "usage_count": 0,
                 "group": "general",
                 "is_active": True
             }
-
             await filters_col.insert_one(filter_data)
-
-            media_preview = "📷 ᴘʜᴏᴛᴏ" if media_type == "photo" else \
-                           "🎬 ᴠɪᴅᴇᴏ" if media_type == "video" else \
-                           "📄 ᴅᴏᴄᴜᴍᴇɴᴛ" if media_type == "document" else \
-                           "🎨 ꜱᴛɪᴄᴋᴇʀ" if media_type == "sticker" else \
-                           "🎥 ᴀɴɪᴍᴀᴛɪᴏɴ" if media_type == "animation" else \
-                           "🎵 ᴀᴜᴅɪᴏ" if media_type == "audio" else media_type
-
-            reply_text = (
-                f"✅ <b>ꜰɪʟᴛᴇʀ ᴀᴅᴅᴇᴅ!</b>\n\n"
-                f"🔑 <b>ᴋᴇʏᴡᴏʀᴅ:</b> `{keyword}`\n"
-                f"📁 <b>ᴛʏᴘᴇ:</b> {media_preview}\n"
-                f"📝 <b>ᴄᴀᴘᴛɪᴏɴ:</b> {caption[:50]}{'...' if len(caption) > 50 else ''}\n"
-            )
-
-            if button_text and button_url:
-                reply_text += f"🔗 <b>ʙᴜᴛᴛᴏɴ:</b> {button_text} → {button_url}\n"
-
-            reply_text += f"\n📅 <b>ᴄʀᴇᴀᴛᴇᴅ:</b> {datetime.utcnow().strftime('%d %b %Y %H:%M')}"
-
-            await message.reply(reply_text)
-            await log_action("filter_added_media", message.from_user.id, f"Keyword: {keyword}, Type: {media_type}")
+            await message.reply(f"✅ <b>ꜰɪʟᴛᴇʀ ᴀᴅᴅᴇᴅ!</b>\n\n🔑 <b>ᴋᴇʏᴡᴏʀᴅ:</b> `{keyword}`")
+            await log_action("filter_added_media", message.from_user.id, f"Keyword: {keyword}")
 
         else:
             if len(message.command) < 3:
-                await message.reply(
-                    "🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n"
-                    "<blockquote>📁 <b>ᴛᴇxᴛ ꜰɪʟᴛᴇʀ:</b>\n"
-                    "/addfilter [ᴋᴇʏᴡᴏʀᴅ] [ʀᴇᴘʟʏ]\n\n"
-                    "<b>ᴍᴇᴅɪᴀ ꜰɪʟᴛᴇʀ:</b>\n"
-                    "ʀᴇᴘʟʏ ᴛᴏ ᴍᴇᴅɪᴀ ᴡɪᴛʜ /addfilter [ᴋᴇʏᴡᴏʀᴅ]</blockquote>\n\n"
-                    "ᴇxᴀᴍᴘʟᴇ: /addfilter ʜᴇʟʟᴏ ʜɪ!"
-                )
+                await message.reply("🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n<blockquote>📁 <b>ᴛᴇxᴛ ꜰɪʟᴛᴇʀ:</b>\n/addfilter [ᴋᴇʏᴡᴏʀᴅ] [ʀᴇᴘʟʏ]</blockquote>")
                 return
 
             parts = message.text.split(None, 2)
             keyword = parts[1].lower().strip()
             reply_text = parts[2]
 
-            filter_count = await filters_col.count_documents({"created_by": message.from_user.id})
-            if filter_count >= MAX_FILTERS_PER_USER:
-                await message.reply(f"❌ Max filters limit reached ({MAX_FILTERS_PER_USER}).")
-                return
-
             existing = await filters_col.find_one({"keyword": keyword})
             if existing:
-                await message.reply(
-                    f"⚠️ Filter `{keyword}` already exists!\n\n"
-                    "Use `/editfilter` to modify or `/delfilter` to delete."
-                )
+                await message.reply(f"⚠️ Filter `{keyword}` already exists!")
                 return
 
             await filters_col.insert_one({
@@ -1277,8 +1232,8 @@ async def add_filter_command(client: Client, message: Message):
                 "reply_text": reply_text,
                 "replies": reply_text.split("|") if "|" in reply_text else [reply_text],
                 "created_by": message.from_user.id,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
                 "usage_count": 0,
                 "group": "general",
                 "media_type": "text",
@@ -1286,368 +1241,242 @@ async def add_filter_command(client: Client, message: Message):
                 "is_active": True,
                 "reply_mode": "random"
             })
-
-            reply_preview = reply_text[:100] + "..." if len(reply_text) > 100 else reply_text
-            reply_count = len(reply_text.split("|")) if "|" in reply_text else 1
-
-            await message.reply(
-                f"✅ <b>Filter Added!</b>\n\n"
-                f"🔑 <b>Keyword:</b> `{keyword}`\n"
-                f"📝 <b>Reply:</b> {reply_preview}\n"
-                f"📊 <b>Replies:</b> {reply_count}\n"
-                f"📁 <b>Group:</b> general\n\n"
-                f"Use `/filterinfo {keyword}` for details."
-            )
+            await message.reply(f"✅ <b>Filter Added!</b>\n\n🔑 <b>Keyword:</b> `{keyword}`")
             await log_action("filter_added", message.from_user.id, f"Keyword: {keyword}")
 
     except Exception as e:
         logger.error(f"Add filter error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# EDIT FILTER COMMAND
-# ============================================================
-
+# --- Edit Filter ---
 @app.on_message(filters.command("editfilter") & filters.private)
 async def edit_filter_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         if len(message.command) < 3:
             await message.reply("❌ <b>Usage:</b> /editfilter [keyword] [new_reply]")
             return
-
         parts = message.text.split(None, 2)
         keyword = parts[1].lower().strip()
         new_reply = parts[2]
-
         filter_doc = await filters_col.find_one({"keyword": keyword})
         if not filter_doc:
             await message.reply(f"❌ Filter `{keyword}` not found.")
             return
-
         if filter_doc["created_by"] != message.from_user.id and not await is_owner(message.from_user.id):
             await message.reply("❌ You can only edit your own filters.")
             return
-
         await filters_col.update_one(
             {"keyword": keyword},
             {"$set": {
                 "reply_text": new_reply,
                 "replies": new_reply.split("|") if "|" in new_reply else [new_reply],
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(timezone.utc)
             }}
         )
-
-        reply_count = len(new_reply.split("|")) if "|" in new_reply else 1
-
-        await message.reply(
-            f"✅ <b>Filter Updated!</b>\n\n"
-            f"🔑 <b>Keyword:</b> `{keyword}`\n"
-            f"📊 <b>Replies:</b> {reply_count}\n"
-            f"📅 <b>Updated:</b> {datetime.utcnow().strftime('%d %b %Y %H:%M')}"
-        )
+        await message.reply(f"✅ <b>Filter Updated!</b>\n\n🔑 <b>Keyword:</b> `{keyword}`")
         await log_action("filter_edited", message.from_user.id, f"Keyword: {keyword}")
-
     except Exception as e:
         logger.error(f"Edit filter error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# DELETE FILTER COMMAND
-# ============================================================
-
+# --- Delete Filter ---
 @app.on_message(filters.command("delfilter") & filters.private)
 async def delete_filter_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         if len(message.command) < 2:
             await message.reply("❌ <b>Usage:</b> /delfilter [keyword]")
             return
-
         keyword = message.command[1].lower().strip()
-
         filter_doc = await filters_col.find_one({"keyword": keyword})
         if not filter_doc:
             await message.reply(f"❌ Filter `{keyword}` not found.")
             return
-
         if filter_doc["created_by"] != message.from_user.id and not await is_owner(message.from_user.id):
             await message.reply("❌ You can only delete your own filters.")
             return
-
         await filters_col.delete_one({"keyword": keyword})
-
         await message.reply(f"✅ Filter `{keyword}` deleted!")
         await log_action("filter_deleted", message.from_user.id, f"Keyword: {keyword}")
-
     except Exception as e:
         logger.error(f"Delete filter error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# LIST FILTERS COMMAND
-# ============================================================
-
+# --- List Filters ---
 @app.on_message(filters.command("listfilters") & (filters.private | filters.group))
 async def list_filters_command(client: Client, message: Message):
     try:
         filters_list = await filters_col.find({"is_active": True}).sort("keyword", 1).to_list(length=None)
-
         if not filters_list:
             await message.reply("📭 No filters found.")
             return
-
         groups = defaultdict(list)
         for f in filters_list:
-            group = f.get("group", "general")
-            groups[group].append(f)
-
+            groups[f.get("group", "general")].append(f)
         text = "📋 **All Filters:**\n\n"
-        total_filters = 0
-
-        for group_name, filters_in_group in groups.items():
-            text += f"📁 **{group_name.upper()}** ({len(filters_in_group)})\n"
-            for f in filters_in_group[:10]:
+        total = 0
+        for group_name, f_list in groups.items():
+            text += f"📁 **{group_name.upper()}** ({len(f_list)})\n"
+            for f in f_list[:10]:
                 usage = f.get("usage_count", 0)
                 replies = len(f.get("replies", [f.get("reply_text", "")]))
-                media_type = f.get("media_type", "text")
-                media_icon = "📷" if media_type == "photo" else "🎬" if media_type == "video" else "📄" if media_type == "document" else "🎨" if media_type == "sticker" else "📝"
+                media_icon = "📷" if f.get("media_type") == "photo" else "🎬" if f.get("media_type") == "video" else "📄" if f.get("media_type") == "document" else "🎨" if f.get("media_type") == "sticker" else "📝"
                 text += f"   {media_icon} `{f['keyword']}` 👁️{usage} 💬{replies}\n"
-            if len(filters_in_group) > 10:
-                text += f"   ... and {len(filters_in_group) - 10} more\n"
+            if len(f_list) > 10:
+                text += f"   ... and {len(f_list)-10} more\n"
             text += "\n"
-            total_filters += len(filters_in_group)
-
-        text += f"📊 **Total: {total_filters} filters**"
-
+            total += len(f_list)
+        text += f"📊 **Total: {total} filters**"
         for part in split_message(text):
             await message.reply(part)
-
     except Exception as e:
         logger.error(f"List filters error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# FILTER STATS COMMAND
-# ============================================================
-
+# --- Filter Stats ---
 @app.on_message(filters.command("filterstats") & filters.private)
 async def filter_stats_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         total_filters = await filters_col.count_documents({"is_active": True})
         total_usage = await filter_logs_col.count_documents({})
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         today_usage = await filter_logs_col.count_documents({"used_at": {"$gte": today}})
-        week = datetime.utcnow() - timedelta(days=7)
+        week = datetime.now(timezone.utc) - timedelta(days=7)
         week_usage = await filter_logs_col.count_documents({"used_at": {"$gte": week}})
-
         top_filters = await filters_col.find({"is_active": True}).sort("usage_count", -1).limit(10).to_list(length=10)
         top_text = ""
         if top_filters:
             top_text = "\n\n🏆 **Top 10 Most Used:**\n"
             for i, f in enumerate(top_filters, 1):
                 top_text += f"   {i}. `{f['keyword']}` - {f.get('usage_count', 0)} uses\n"
-
         groups_dist = await filters_col.distinct("group")
         groups_text = "\n\n📁 **Group Distribution:**\n"
         for group in groups_dist:
             count = await filters_col.count_documents({"group": group, "is_active": True})
             groups_text += f"   • {group}: {count} filters\n"
-
         await message.reply(
-            f"📊 <b>Filter Statistics:</b>\n\n"
-            f"📌 Total Filters: {total_filters}\n"
-            f"👁️ Total Uses: {total_usage}\n"
-            f"📅 Today: {today_usage}\n"
-            f"📆 This Week: {week_usage}"
-            f"{top_text}{groups_text}"
+            f"📊 <b>Filter Statistics:</b>\n\n📌 Total Filters: {total_filters}\n"
+            f"👁️ Total Uses: {total_usage}\n📅 Today: {today_usage}\n📆 This Week: {week_usage}{top_text}{groups_text}"
         )
-
     except Exception as e:
         logger.error(f"Filter stats error: {e}")
         await message.reply(f"❌ Error: {e}")
-# ============================================================
-# ADD REPLY COMMAND
-# ============================================================
 
+# --- Add Reply ---
 @app.on_message(filters.command("addreply") & filters.private)
 async def add_reply_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         if len(message.command) < 3:
             await message.reply("❌ <b>Usage:</b> /addreply [keyword] [new_reply]")
             return
-
         parts = message.text.split(None, 2)
         keyword = parts[1].lower().strip()
         new_reply = parts[2]
-
         filter_doc = await filters_col.find_one({"keyword": keyword})
         if not filter_doc:
             await message.reply(f"❌ Filter `{keyword}` not found.")
             return
-
         if filter_doc["created_by"] != message.from_user.id and not await is_owner(message.from_user.id):
             await message.reply("❌ You can only edit your own filters.")
             return
-
-        current_replies = filter_doc.get("replies", [filter_doc.get("reply_text", "")])
-        
-        if len(current_replies) >= MAX_REPLIES_PER_FILTER:
+        current = filter_doc.get("replies", [filter_doc.get("reply_text", "")])
+        if len(current) >= MAX_REPLIES_PER_FILTER:
             await message.reply(f"❌ Max replies per filter ({MAX_REPLIES_PER_FILTER}) reached.")
             return
-
-        current_replies.append(new_reply)
-
+        current.append(new_reply)
         await filters_col.update_one(
             {"keyword": keyword},
-            {"$set": {
-                "replies": current_replies,
-                "reply_text": " | ".join(current_replies),
-                "updated_at": datetime.utcnow()
-            }}
+            {"$set": {"replies": current, "reply_text": " | ".join(current), "updated_at": datetime.now(timezone.utc)}}
         )
-
-        await message.reply(
-            f"✅ <b>Reply Added!</b>\n\n"
-            f"🔑 <b>Keyword:</b> `{keyword}`\n"
-            f"📝 <b>New Reply:</b> {new_reply[:100]}{'...' if len(new_reply) > 100 else ''}\n"
-            f"📊 <b>Total Replies:</b> {len(current_replies)}"
-        )
+        await message.reply(f"✅ <b>Reply Added!</b>\n\n🔑 <b>Keyword:</b> `{keyword}`")
         await log_action("reply_added", message.from_user.id, f"Keyword: {keyword}")
-
     except Exception as e:
         logger.error(f"Add reply error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# DELETE REPLY COMMAND
-# ============================================================
-
+# --- Delete Reply ---
 @app.on_message(filters.command("delreply") & filters.private)
 async def delete_reply_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         if len(message.command) < 3:
             await message.reply("❌ <b>Usage:</b> /delreply [keyword] [reply_number]")
             return
-
         keyword = message.command[1].lower().strip()
         try:
             reply_num = int(message.command[2]) - 1
         except ValueError:
             await message.reply("❌ Invalid reply number.")
             return
-
         filter_doc = await filters_col.find_one({"keyword": keyword})
         if not filter_doc:
             await message.reply(f"❌ Filter `{keyword}` not found.")
             return
-
         if filter_doc["created_by"] != message.from_user.id and not await is_owner(message.from_user.id):
             await message.reply("❌ You can only edit your own filters.")
             return
-
-        current_replies = filter_doc.get("replies", [filter_doc.get("reply_text", "")])
-        
-        if reply_num < 0 or reply_num >= len(current_replies):
-            await message.reply(f"❌ Reply number {reply_num + 1} not found. Total replies: {len(current_replies)}")
+        current = filter_doc.get("replies", [filter_doc.get("reply_text", "")])
+        if reply_num < 0 or reply_num >= len(current):
+            await message.reply(f"❌ Reply number {reply_num+1} not found.")
             return
-
-        deleted_reply = current_replies.pop(reply_num)
-
+        deleted = current.pop(reply_num)
         await filters_col.update_one(
             {"keyword": keyword},
-            {"$set": {
-                "replies": current_replies,
-                "reply_text": " | ".join(current_replies) if current_replies else "No replies",
-                "updated_at": datetime.utcnow()
-            }}
+            {"$set": {"replies": current, "reply_text": " | ".join(current) if current else "No replies", "updated_at": datetime.now(timezone.utc)}}
         )
-
-        await message.reply(
-            f"✅ <b>Reply Deleted!</b>\n\n"
-            f"🔑 <b>Keyword:</b> `{keyword}`\n"
-            f"📝 <b>Deleted:</b> {deleted_reply[:100]}{'...' if len(deleted_reply) > 100 else ''}\n"
-            f"📊 <b>Total Replies:</b> {len(current_replies)}"
-        )
+        await message.reply(f"✅ <b>Reply Deleted!</b>\n\n🔑 <b>Keyword:</b> `{keyword}`")
         await log_action("reply_deleted", message.from_user.id, f"Keyword: {keyword}")
-
     except Exception as e:
         logger.error(f"Delete reply error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# FILTER GROUP COMMAND
-# ============================================================
-
+# --- Filter Group ---
 @app.on_message(filters.command("filtergroup") & filters.private)
 async def filter_group_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         if len(message.command) < 3:
             await message.reply("❌ <b>Usage:</b> /filtergroup [keyword] [group_name]")
             return
-
         keyword = message.command[1].lower().strip()
         group_name = message.command[2].lower().strip()
-
         filter_doc = await filters_col.find_one({"keyword": keyword})
         if not filter_doc:
             await message.reply(f"❌ Filter `{keyword}` not found.")
             return
-
         if filter_doc["created_by"] != message.from_user.id and not await is_owner(message.from_user.id):
             await message.reply("❌ You can only modify your own filters.")
             return
-
         await filters_col.update_one(
             {"keyword": keyword},
-            {"$set": {"group": group_name, "updated_at": datetime.utcnow()}}
+            {"$set": {"group": group_name, "updated_at": datetime.now(timezone.utc)}}
         )
-
-        await message.reply(
-            f"✅ <b>Filter Group Updated!</b>\n\n"
-            f"🔑 <b>Keyword:</b> `{keyword}`\n"
-            f"📁 <b>New Group:</b> {group_name}"
-        )
+        await message.reply(f"✅ <b>Filter Group Updated!</b>\n\n🔑 <b>Keyword:</b> `{keyword}`\n📁 <b>New Group:</b> {group_name}")
         await log_action("filter_group", message.from_user.id, f"Keyword: {keyword} -> {group_name}")
-
     except Exception as e:
         logger.error(f"Filter group error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# EXPORT FILTERS COMMAND
-# ============================================================
-
+# --- Export Filters ---
 @app.on_message(filters.command("exportfilters") & filters.private)
 async def export_filters_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         status_msg = await message.reply("📦 **Exporting filters...**")
-
         filters_list = await filters_col.find().to_list(length=None)
-        
         if not filters_list:
             await status_msg.edit_text("📭 No filters to export.")
             return
-
         export_data = []
         for f in filters_list:
             export_data.append({
@@ -1661,64 +1490,44 @@ async def export_filters_command(client: Client, message: Message):
                 "button_url": f.get("button_url"),
                 "created_by": f.get("created_by", "unknown")
             })
-
         json_data = json.dumps(export_data, indent=2, ensure_ascii=False)
-        
-        filename = f"filters_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"filters_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(json_data)
-
         await client.send_document(
             message.from_user.id,
             filename,
-            caption=f"📦 **Filters Export**\n\n📊 Total Filters: {len(export_data)}\n📅 Exported: {datetime.utcnow().strftime('%d %b %Y %H:%M')}"
+            caption=f"📦 **Filters Export**\n\n📊 Total Filters: {len(export_data)}"
         )
-
         os.remove(filename)
         await status_msg.delete()
         await log_action("filters_exported", message.from_user.id, f"Count: {len(export_data)}")
-
     except Exception as e:
         logger.error(f"Export filters error: {e}")
         await message.reply(f"❌ Error: {e}")
 
-# ============================================================
-# IMPORT FILTERS COMMAND
-# ============================================================
-
+# --- Import Filters ---
 @app.on_message(filters.command("importfilters") & filters.private)
 async def import_filters_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         await message.reply(
-            "📤 **Import Filters**\n\n"
-            "Send me the JSON file exported from this bot.\n\n"
-            "⚠️ Existing filters with same keywords will be **overwritten**."
+            "📤 **Import Filters**\n\nSend me the JSON file exported from this bot.\n\n⚠️ Existing filters with same keywords will be **overwritten**."
         )
-
     except Exception as e:
         logger.error(f"Import filters error: {e}")
         await message.reply(f"❌ Error: {e}")
-
-# ============================================================
-# IMPORT FILTERS FILE HANDLER
-# ============================================================
 
 @app.on_message(filters.document & filters.private)
 async def import_filters_file_handler(client: Client, message: Message):
     try:
         if not message.document.file_name.endswith('.json'):
             return
-
         if not await check_admin(client, message):
             return
-
         status_msg = await message.reply("📥 **Downloading file...**")
-
         file_path = await message.download()
-
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 import_data = json.load(f)
@@ -1726,87 +1535,48 @@ async def import_filters_file_handler(client: Client, message: Message):
             await status_msg.edit_text(f"❌ Invalid JSON file: {e}")
             os.remove(file_path)
             return
-
         if not isinstance(import_data, list):
             await status_msg.edit_text("❌ Invalid format. Expected array of filters.")
             os.remove(file_path)
             return
-
         imported = 0
-        skipped = 0
-        errors = 0
-
         for filter_data in import_data:
             try:
                 keyword = filter_data.get("keyword", "").lower().strip()
                 replies = filter_data.get("replies", [])
-                group = filter_data.get("group", "general")
-                media_type = filter_data.get("media_type", "text")
-                media_file_id = filter_data.get("media_file_id")
-                caption = filter_data.get("caption", "")
-                button_text = filter_data.get("button_text")
-                button_url = filter_data.get("button_url")
-
                 if not keyword or not replies:
-                    skipped += 1
                     continue
-
                 existing = await filters_col.find_one({"keyword": keyword})
-                
-                filter_doc = {
+                doc = {
                     "keyword": keyword,
                     "reply_text": " | ".join(replies),
                     "replies": replies,
-                    "group": group,
-                    "media_type": media_type,
-                    "media_file_id": media_file_id,
-                    "caption": caption,
-                    "button_text": button_text,
-                    "button_url": button_url,
+                    "group": filter_data.get("group", "general"),
+                    "media_type": filter_data.get("media_type", "text"),
+                    "media_file_id": filter_data.get("media_file_id"),
+                    "caption": filter_data.get("caption", ""),
+                    "button_text": filter_data.get("button_text"),
+                    "button_url": filter_data.get("button_url"),
                     "created_by": message.from_user.id,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
                     "usage_count": 0,
                     "is_active": True
                 }
-
                 if existing:
-                    await filters_col.update_one(
-                        {"keyword": keyword},
-                        {"$set": {
-                            "replies": replies,
-                            "reply_text": " | ".join(replies),
-                            "group": group,
-                            "media_type": media_type,
-                            "media_file_id": media_file_id,
-                            "caption": caption,
-                            "button_text": button_text,
-                            "button_url": button_url,
-                            "updated_at": datetime.utcnow()
-                        }}
-                    )
-                    imported += 1
+                    await filters_col.update_one({"keyword": keyword}, {"$set": doc})
                 else:
-                    await filters_col.insert_one(filter_doc)
-                    imported += 1
-
+                    await filters_col.insert_one(doc)
+                imported += 1
             except Exception as e:
-                errors += 1
                 logger.error(f"Import error: {e}")
-
         os.remove(file_path)
-
-        await status_msg.edit_text(
-            f"✅ <b>Import Complete!</b>\n\n"
-            f"✅ Imported: {imported}\n"
-            f"⏭️ Skipped: {skipped}\n"
-            f"❌ Errors: {errors}"
-        )
+        await status_msg.edit_text(f"✅ <b>Import Complete!</b>\n\n✅ Imported: {imported}")
         await log_action("filters_imported", message.from_user.id, f"Imported: {imported}")
-
     except Exception as e:
         logger.error(f"Import filters file error: {e}")
         await message.reply(f"❌ Error: {e}")
+
 # ============================================================
 # ANTI-LINK COMMANDS
 # ============================================================
@@ -1816,9 +1586,7 @@ async def antilink_settings_command(client: Client, message: Message):
     try:
         if not await check_admin(client, message):
             return
-
         settings = await get_antilink_settings()
-        
         if len(message.command) < 2:
             status = "🟢 Enabled" if settings.get("enabled", True) else "🔴 Disabled"
             await message.reply(
@@ -1826,28 +1594,24 @@ async def antilink_settings_command(client: Client, message: Message):
                 f"<blockquote>📊 <b>Status:</b> {status}\n"
                 f"⚠️ <b>Warn Limit:</b> {settings.get('warn_limit', 3)}\n"
                 f"⏱️ <b>Ban Duration:</b> {settings.get('ban_duration', 10)}s\n"
-                f"⏰ <b>Reset Time:</b> {settings.get('reset_time', 24)}h\n"
                 f"⚡ <b>Action:</b> {settings.get('action', 'warn')}\n"
                 f"📢 <b>Notify Admins:</b> {'✅' if settings.get('notify_admins', True) else '❌'}</blockquote>\n"
                 f"<b>Usage:</b>\n"
-                f"/antilink on/off - Toggle\n"
-                f"/antilink limit [num] - Set warn limit\n"
-                f"/antilink bantime [seconds] - Set ban duration\n"
-                f"/antilink action [warn/delete/ban] - Set action\n"
-                f"/antilink reset [user_id] - Reset user violations"
+                f"/antilink on/off\n"
+                f"/antilink limit [num]\n"
+                f"/antilink bantime [seconds]\n"
+                f"/antilink action [warn/delete/ban]\n"
+                f"/antilink reset [user_id]"
             )
             return
 
         command = message.command[1].lower()
-
         if command == "on":
             await update_antilink_settings({"enabled": True})
             await message.reply("✅ <b>Anti-Link Enabled!</b>")
-
         elif command == "off":
             await update_antilink_settings({"enabled": False})
             await message.reply("❌ <b>Anti-Link Disabled!</b>")
-
         elif command == "limit":
             if len(message.command) < 3:
                 await message.reply("❌ <b>Usage:</b> /antilink limit [num]")
@@ -1861,7 +1625,6 @@ async def antilink_settings_command(client: Client, message: Message):
                 await message.reply(f"✅ <b>Warn limit set to:</b> {limit}")
             except ValueError:
                 await message.reply("❌ <b>Invalid number!</b>")
-
         elif command == "bantime":
             if len(message.command) < 3:
                 await message.reply("❌ <b>Usage:</b> /antilink bantime [seconds]")
@@ -1875,7 +1638,6 @@ async def antilink_settings_command(client: Client, message: Message):
                 await message.reply(f"✅ <b>Ban duration set to:</b> {duration}s")
             except ValueError:
                 await message.reply("❌ <b>Invalid number!</b>")
-
         elif command == "action":
             if len(message.command) < 3:
                 await message.reply("❌ <b>Usage:</b> /antilink action [warn/delete/ban]")
@@ -1886,7 +1648,6 @@ async def antilink_settings_command(client: Client, message: Message):
                 return
             await update_antilink_settings({"action": action})
             await message.reply(f"✅ <b>Action set to:</b> {action}")
-
         elif command == "reset":
             if len(message.command) < 3:
                 await message.reply("❌ <b>Usage:</b> /antilink reset [user_id]")
@@ -1898,10 +1659,8 @@ async def antilink_settings_command(client: Client, message: Message):
                 await log_action("antilink_reset", message.from_user.id, f"User: {user_id}")
             except ValueError:
                 await message.reply("❌ <b>Invalid user ID!</b>")
-
         else:
             await message.reply("❌ <b>Invalid command!</b> Use /antilink for help")
-
     except Exception as e:
         logger.error(f"Anti-link settings error: {e}")
         await message.reply(f"❌ <b>Error:</b> {e}")
@@ -1915,48 +1674,29 @@ async def filter_reply_handler(client: Client, message: Message):
     try:
         if not message.text or len(message.text) < 2:
             return
-
         user_doc = await users_col.find_one({"user_id": message.from_user.id})
         if user_doc and user_doc.get("is_banned", False):
             return
-
         text = message.text.lower().strip()
-
         filters_list = await filters_col.find({"is_active": True}).to_list(length=None)
-
         for f in filters_list:
             keyword = f['keyword']
             replies = f.get("replies", [f.get("reply_text", "")])
-            
-            if keyword in text:
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                if re.search(pattern, text):
-                    reply = random.choice(replies)
-                    
-                    await message.reply(reply)
-                    
-                    await filters_col.update_one(
-                        {"keyword": keyword},
-                        {"$inc": {"usage_count": 1}}
-                    )
-                    
-                    await filter_logs_col.insert_one({
-                        "filter_id": f['_id'],
-                        "keyword": keyword,
-                        "user_id": message.from_user.id,
-                        "username": message.from_user.username,
-                        "message_text": message.text[:500],
-                        "chat_type": "private",
-                        "used_at": datetime.utcnow()
-                    })
-                    
-                    await users_col.update_one(
-                        {"user_id": message.from_user.id},
-                        {"$inc": {"commands_used": 1}}
-                    )
-                    
-                    break
-
+            if keyword in text and re.search(r'\b' + re.escape(keyword) + r'\b', text):
+                reply = random.choice(replies)
+                await message.reply(reply)
+                await filters_col.update_one({"keyword": keyword}, {"$inc": {"usage_count": 1}})
+                await filter_logs_col.insert_one({
+                    "filter_id": f['_id'],
+                    "keyword": keyword,
+                    "user_id": message.from_user.id,
+                    "username": message.from_user.username,
+                    "message_text": message.text[:500],
+                    "chat_type": "private",
+                    "used_at": datetime.now(timezone.utc)
+                })
+                await users_col.update_one({"user_id": message.from_user.id}, {"$inc": {"commands_used": 1}})
+                break
     except Exception as e:
         logger.error(f"Filter reply error: {e}")
 
@@ -1970,13 +1710,8 @@ async def ping_command(client: Client, message: Message):
         start = time.time()
         msg = await message.reply("🏓 Pinging...")
         end = time.time()
-        
         latency = (end - start) * 1000
-        await msg.edit_text(
-            f"🏓 <b>Pong!</b>\n\n"
-            f"📊 Latency: `{latency:.0f}ms`\n"
-            f"⏱️ Response: `{(end - start):.2f}s`"
-        )
+        await msg.edit_text(f"🏓 <b>Pong!</b>\n\n📊 Latency: `{latency:.0f}ms`\n⏱️ Response: `{(end - start):.2f}s`")
     except Exception as e:
         logger.error(f"Ping error: {e}")
 
@@ -1986,7 +1721,7 @@ async def ping_command(client: Client, message: Message):
 
 async def cleanup_expired_links():
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expired_links = await invite_links_col.find({"status": "active", "expires_at": {"$lte": now}}).to_list(length=100)
         for link in expired_links:
             try:
@@ -2006,7 +1741,7 @@ async def cleanup_expired_links():
 
 async def reset_daily_violations():
     try:
-        cutoff = datetime.utcnow() - timedelta(hours=24)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         result = await antilink_violations_col.delete_many({"date": {"$lt": cutoff}})
         if result.deleted_count > 0:
             logger.info(f"Reset {result.deleted_count} violations")
@@ -2020,10 +1755,8 @@ async def reset_daily_violations():
 async def on_startup():
     logger.info("Bot starting up...")
     await setup_indexes()
-    
     scheduler.add_job(cleanup_expired_links, IntervalTrigger(minutes=2), id="cleanup_links", replace_existing=True)
     scheduler.add_job(reset_daily_violations, CronTrigger(hour=0, minute=0), id="reset_violations", replace_existing=True)
-    
     scheduler.start()
     logger.info("Bot is ready!")
 
