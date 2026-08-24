@@ -83,10 +83,15 @@ ALL_COMMANDS = [
 ]
 
 # ============================================================
-# START IMAGE (Fixed)
+# START IMAGES (4 total, random selection)
 # ============================================================
 
-START_IMAGE = "https://files.catbox.moe/sla8rd.jpg"
+START_IMAGES = [
+    "https://files.catbox.moe/sla8rd.jpg",
+    "https://files.catbox.moe/9tqcsy.jpg",
+    "https://files.catbox.moe/xh6fdc.jpg",
+    "https://files.catbox.moe/t3c8bc.jpg"
+]
 
 # ============================================================
 # LOGGING
@@ -536,7 +541,7 @@ async def update_welcome_settings(chat_id: int, updates: dict):
     )
 
 # ============================================================
-# BUTTON FUNCTIONS (No extra Alya, No Search)
+# BUTTON FUNCTIONS (All small caps, no extra ALYA, no SEARCH)
 # ============================================================
 
 def get_start_menu_buttons():
@@ -611,16 +616,18 @@ OWNER_DENIED = """
 """
 
 # ============================================================
-# SEND WELCOME WITH IMAGE (No emojis in greeting)
+# SEND WELCOME WITH RANDOM IMAGE & FULL SMALL CAPS CAPTION
 # ============================================================
 
 async def send_welcome_with_image(client: Client, chat_id: int, user_name: str, edit_message_id: int = None):
     """
-    Send welcome message with the fixed banner image (no emojis in greeting).
-    If edit_message_id is provided, edit that message instead of sending new.
+    Send welcome message with a random image from the 4 URLs.
+    The ENTIRE caption is converted to small caps.
     """
+    # Pick a random image from the list
+    image_url = random.choice(START_IMAGES)
     
-    # Get greeting based on time (IST)
+    # Greeting based on IST
     current_hour = datetime.now(timezone.utc).hour + 5.5
     current_hour = current_hour % 24
     
@@ -633,38 +640,39 @@ async def send_welcome_with_image(client: Client, chat_id: int, user_name: str, 
     else:
         greeting = "Good Night"
 
-    welcome_text = (
+    # Raw caption – all text (including user name and greeting)
+    raw_caption = (
         f"HEY {user_name}, {greeting}!\n\n"
         f"I AM THE MOST POWERFUL AUTO FILTER BOT WITH PREMIUM FEATURES,\n"
         f"JUST ADD ME TO YOUR GROUP AND ENJOY!\n\n"
         f"💎 DEVELOPED WITH 💎 BY PRIME CORE\n\n"
         f"~ (^∇^) ~ USE THE BUTTONS BELOW! ~ (^∇^) ~"
     )
-    
+
+    # Convert EVERYTHING to small caps (emojis and symbols remain unchanged)
+    caption_small = small_caps(raw_caption)
+
     if edit_message_id:
-        # Edit existing message (caption + buttons)
         try:
             await client.edit_message_caption(
                 chat_id=chat_id,
                 message_id=edit_message_id,
-                caption=welcome_text,
+                caption=caption_small,
                 reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
             )
         except Exception as e:
             logger.error(f"Edit caption error: {e}")
-            # Fallback to send new message if edit fails
             await client.send_photo(
                 chat_id=chat_id,
-                photo=START_IMAGE,
-                caption=welcome_text,
+                photo=image_url,
+                caption=caption_small,
                 reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
             )
     else:
-        # Send new message
         await client.send_photo(
             chat_id=chat_id,
-            photo=START_IMAGE,
-            caption=welcome_text,
+            photo=image_url,
+            caption=caption_small,
             reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
         )
 
@@ -724,7 +732,7 @@ async def start_command(client: Client, message: Message):
         await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
         await asyncio.sleep(1.5)
 
-        # Send welcome with fixed image
+        # Send welcome with random image and small caps caption
         await send_welcome_with_image(
             client,
             message.chat.id,
@@ -850,7 +858,7 @@ async def show_help_callback(client: Client, callback: CallbackQuery):
 async def back_to_start_callback(client: Client, callback: CallbackQuery):
     try:
         await callback.answer()
-        # Send the same fixed image when returning to home – edit existing message
+        # Send the same random image and small caps caption – edit existing message
         await send_welcome_with_image(
             client,
             callback.from_user.id,
