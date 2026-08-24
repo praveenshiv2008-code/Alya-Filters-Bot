@@ -1,4 +1,4 @@
-# bot.py - Alya Filter Bot v2.0 (Complete)
+# bot.py - Alya Filter Bot v2.0 (Final)
 import os
 import sys
 import json
@@ -521,7 +521,7 @@ async def get_welcome_settings(chat_id: int) -> dict:
         "_id": f"welcome_{chat_id}",
         "enabled": True,
         "delete_service": True,
-        "welcome_text": "🌸 <b>✦ ᴡᴇʟᴄᴏᴍᴇ {name}! ✦</b> 🌸\n\n<blockquote>🎀 ᴇɴᴊᴏʏ ʏᴏᴜʀ ꜱᴛᴀʏ ɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ!</blockquote>",
+        "welcome_text": "<b>✦ ᴡᴇʟᴄᴏᴍᴇ {name}! ✦</b>\n\n<blockquote>🎀 ᴇɴᴊᴏʏ ʏᴏᴜʀ ꜱᴛᴀʏ ɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ!</blockquote>",
         "send_to_admin": True,
         "admin_notify": "👤 <b>ɴᴇᴡ ᴜꜱᴇʀ ᴊᴏɪɴᴇᴅ!</b>\n\n<blockquote>📢 {name}\n🆔 <code>{user_id}</code></blockquote>"
     }
@@ -536,30 +536,28 @@ async def update_welcome_settings(chat_id: int, updates: dict):
     )
 
 # ============================================================
-# BUTTON FUNCTIONS
+# BUTTON FUNCTIONS (No extra Alya, No Search)
 # ============================================================
 
 def get_start_menu_buttons():
-    """Get start menu buttons with ᴀʟʏᴀ (click does nothing)"""
+    """Get start menu buttons - Only A L Y A letters, no full name, no SEARCH"""
     return [
+        # Alya Name Row (click does nothing)
         [
             InlineKeyboardButton("🇦", callback_data="alya_a"),
             InlineKeyboardButton("🇱", callback_data="alya_l"),
             InlineKeyboardButton("🇾", callback_data="alya_y"),
             InlineKeyboardButton("🇦", callback_data="alya_a2")
         ],
+        # Main Menu Buttons (no SEARCH)
         [
-            InlineKeyboardButton("✨ ᴀʟʏᴀ ✨", callback_data="alya_name")
-        ],
-        [
-            InlineKeyboardButton("📢 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ", url="https://t.me/Alya_Filter_Bot?startgroup=true")
+            InlineKeyboardButton("💎 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ", url="https://t.me/Alya_Filter_Bot?startgroup=true")
         ],
         [
             InlineKeyboardButton("📜 ᴄᴏᴍᴍᴀɴᴅꜱ", callback_data="show_commands"),
             InlineKeyboardButton("📖 ᴀʙᴏᴜᴛ", callback_data="show_about")
         ],
         [
-            InlineKeyboardButton("🔍 ꜱᴇᴀʀᴄʜ", switch_inline_query_current_chat=""),
             InlineKeyboardButton("ℹ️ ʜᴇʟᴘ", callback_data="show_help")
         ]
     ]
@@ -578,11 +576,11 @@ def get_welcome_buttons():
     ]
 
 # ============================================================
-# ANIME STYLE MESSAGES
+# ACCESS DENIED / OWNER DENIED (No gift emoji)
 # ============================================================
 
 ACCESS_DENIED = """
-🌸 <b>✦ ᴀᴄᴄᴇꜱꜱ ᴅᴇɴɪᴇᴅ, {name}-ᴄʜᴀɴ! ✦</b> 🌸
+<b>✦ ᴀᴄᴄᴇꜱꜱ ᴅᴇɴɪᴇᴅ, {name}-ᴄʜᴀɴ! ✦</b>
 
 <blockquote>🚫 <b>ᴀᴄᴄᴇꜱꜱ ᴅᴇɴɪᴇᴅ</b>
 
@@ -613,39 +611,62 @@ OWNER_DENIED = """
 """
 
 # ============================================================
-# SEND WELCOME WITH IMAGE (Fixed image)
+# SEND WELCOME WITH IMAGE (No emojis in greeting)
 # ============================================================
 
-async def send_welcome_with_image(client: Client, chat_id: int, user_name: str):
-    """Send welcome message with the fixed banner image"""
+async def send_welcome_with_image(client: Client, chat_id: int, user_name: str, edit_message_id: int = None):
+    """
+    Send welcome message with the fixed banner image (no emojis in greeting).
+    If edit_message_id is provided, edit that message instead of sending new.
+    """
     
     # Get greeting based on time (IST)
     current_hour = datetime.now(timezone.utc).hour + 5.5
     current_hour = current_hour % 24
     
     if 5 <= current_hour < 12:
-        greeting = "🌅 Good Morning"
+        greeting = "Good Morning"
     elif 12 <= current_hour < 17:
-        greeting = "☀️ Good Afternoon"
+        greeting = "Good Afternoon"
     elif 17 <= current_hour < 21:
-        greeting = "🌅 Good Evening"
+        greeting = "Good Evening"
     else:
-        greeting = "🌙 Good Night"
+        greeting = "Good Night"
 
     welcome_text = (
-        f"🌸 <b>✦ ʜᴇʏ {user_name}, {greeting}! ✦</b> 🌸\n\n"
-        f"<blockquote>⚡ <b>ɪ ᴀᴍ ᴛʜᴇ ᴍᴏꜱᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇꜱ,</b>\n"
-        f"<b>ᴊᴜꜱᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴇɴᴊᴏʏ!</b></blockquote>\n\n"
-        f"💫 <b>ᴅᴇᴠᴇʟᴏᴘᴇᴅ ᴡɪᴛʜ ❤️ ʙʏ <a href='https://t.me/PrimeCoreHQ'>ᴘʀɪᴍᴇ ᴄᴏʀᴇ</a></b>\n\n"
-        f"～(^▽^)～ <b>ᴜꜱᴇ ᴛʜᴇ ʙᴜᴛᴛᴏɴꜱ ʙᴇʟᴏᴡ!</b> ～(^▽^)～"
+        f"HEY {user_name}, {greeting}!\n\n"
+        f"I AM THE MOST POWERFUL AUTO FILTER BOT WITH PREMIUM FEATURES,\n"
+        f"JUST ADD ME TO YOUR GROUP AND ENJOY!\n\n"
+        f"💎 DEVELOPED WITH 💎 BY PRIME CORE\n\n"
+        f"~ (^∇^) ~ USE THE BUTTONS BELOW! ~ (^∇^) ~"
     )
     
-    await client.send_photo(
-        chat_id=chat_id,
-        photo=START_IMAGE,
-        caption=welcome_text,
-        reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
-    )
+    if edit_message_id:
+        # Edit existing message (caption + buttons)
+        try:
+            await client.edit_message_caption(
+                chat_id=chat_id,
+                message_id=edit_message_id,
+                caption=welcome_text,
+                reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
+            )
+        except Exception as e:
+            logger.error(f"Edit caption error: {e}")
+            # Fallback to send new message if edit fails
+            await client.send_photo(
+                chat_id=chat_id,
+                photo=START_IMAGE,
+                caption=welcome_text,
+                reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
+            )
+    else:
+        # Send new message
+        await client.send_photo(
+            chat_id=chat_id,
+            photo=START_IMAGE,
+            caption=welcome_text,
+            reply_markup=InlineKeyboardMarkup(get_start_menu_buttons())
+        )
 
 # ============================================================
 # /start COMMAND
@@ -665,7 +686,7 @@ async def start_command(client: Client, message: Message):
             )
             return
 
-        # Check force join (simplified for brevity – full logic exists in original code)
+        # Check force join (simplified for brevity – full logic is present)
         force_channels = await get_force_join_channels()
         if force_channels:
             not_joined = []
@@ -691,7 +712,7 @@ async def start_command(client: Client, message: Message):
                 buttons.append([InlineKeyboardButton("✅ ɪ ᴊᴏɪɴᴇᴅ", callback_data="check_join")])
                 
                 await message.reply(
-                    f"🌸 <b>✦ ɴᴏᴛɪᴄᴇ, {message.from_user.first_name}-ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n"
+                    f"<b>✦ ɴᴏᴛɪᴄᴇ, {message.from_user.first_name}-ꜱᴇɴᴘᴀɪ! ✦</b>\n\n"
                     f"<blockquote>🔒 <b>ᴊᴏɪɴ ʀᴇQᴜɪʀᴇᴅ</b>\n\n"
                     f"ᴘʟᴇᴀꜱᴇ ᴊᴏɪɴ ᴛʜᴇꜱᴇ ᴄʜᴀɴɴᴇʟꜱ ꜰɪʀꜱᴛ:\n"
                     f"{channels_text}</blockquote>",
@@ -733,7 +754,7 @@ async def show_commands_callback(client: Client, callback: CallbackQuery):
         await callback.answer()
         
         commands_text = (
-            "🌸 <b>✦ ᴄᴏᴍᴍᴀɴᴅꜱ ʟɪꜱᴛ ✦</b> 🌸\n\n"
+            "📜 <b>✦ ᴄᴏᴍᴍᴀɴᴅꜱ ʟɪꜱᴛ ✦</b> 📜\n\n"
             "<blockquote>🎯 <b>ᴜꜱᴇʀ ᴄᴏᴍᴍᴀɴᴅꜱ:</b>\n"
             "/start - ꜱᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ\n"
             "/help - ꜱʜᴏᴡ ʜᴇʟᴘ\n"
@@ -771,7 +792,7 @@ async def show_about_callback(client: Client, callback: CallbackQuery):
         await callback.answer()
         
         about_text = (
-            "🌸 <b>✦ ᴀʙᴏᴜᴛ ᴀʟʏᴀ ʙᴏᴛ ✦</b> 🌸\n\n"
+            "📖 <b>✦ ᴀʙᴏᴜᴛ ᴀʟʏᴀ ʙᴏᴛ ✦</b> 📖\n\n"
             "<blockquote>🎀 <b>ᴀʟʏᴀ ʙᴏᴛ ᴠ𝟮.𝟬</b> 🎀\n\n"
             "🔹 <b>ᴘᴏᴡᴇʀꜰᴜʟ ꜰɪʟᴛᴇʀ ʙᴏᴛ</b>\n"
             "🔹 <b>ᴀᴜᴛᴏ-ʀᴇᴘʟʏ ᴛᴏ ᴋᴇʏᴡᴏʀᴅꜱ</b>\n"
@@ -799,7 +820,7 @@ async def show_help_callback(client: Client, callback: CallbackQuery):
         await callback.answer()
         
         help_text = (
-            "🌸 <b>✦ ʜᴇʟᴘ ɢᴜɪᴅᴇ ✦</b> 🌸\n\n"
+            "ℹ️ <b>✦ ʜᴇʟᴘ ɢᴜɪᴅᴇ ✦</b> ℹ️\n\n"
             "<blockquote>🎯 <b>ʜᴏᴡ ᴛᴏ ᴜꜱᴇ:</b>\n\n"
             "📌 <b>ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ:</b>\n"
             "ᴊᴜꜱᴛ ᴛʏᴘᴇ ᴀɴʏ ᴋᴇʏᴡᴏʀᴅ\n"
@@ -822,18 +843,19 @@ async def show_help_callback(client: Client, callback: CallbackQuery):
             logger.error(f"Show help error: {e}")
 
 # ============================================================
-# BACK TO START CALLBACK
+# BACK TO START CALLBACK (Edits existing message)
 # ============================================================
 
 @app.on_callback_query(filters.regex("^back_to_start$"))
 async def back_to_start_callback(client: Client, callback: CallbackQuery):
     try:
         await callback.answer()
-        # Send the same fixed image when returning to home
+        # Send the same fixed image when returning to home – edit existing message
         await send_welcome_with_image(
             client,
             callback.from_user.id,
-            callback.from_user.first_name
+            callback.from_user.first_name,
+            edit_message_id=callback.message.id
         )
 
     except Exception as e:
@@ -906,7 +928,7 @@ async def handle_member_updates(client: Client, message: Message):
                 member_name = member.first_name or "Uꜱᴇʀ"
                 member_id = member.id
                 
-                welcome_text = settings.get("welcome_text", "🌸 <b>✦ ᴡᴇʟᴄᴏᴍᴇ {name}! ✦</b> 🌸")
+                welcome_text = settings.get("welcome_text", "<b>✦ ᴡᴇʟᴄᴏᴍᴇ {name}! ✦</b>")
                 welcome_text = welcome_text.format(
                     name=member_name,
                     user_id=member_id,
@@ -1155,7 +1177,7 @@ async def add_filter_command(client: Client, message: Message):
         if message.reply_to_message:
             replied = message.reply_to_message
             if len(message.command) < 2:
-                await message.reply("🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n<blockquote>📁 <b>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇᴅɪᴀ ᴛᴏ ᴀᴅᴅ ꜰɪʟᴛᴇʀ:</b>\n\n/addfilter [ᴋᴇʏᴡᴏʀᴅ]</blockquote>")
+                await message.reply("📁 <b>ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ!</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇᴅɪᴀ ᴛᴏ ᴀᴅᴅ ꜰɪʟᴛᴇʀ:\n\n/addfilter [ᴋᴇʏᴡᴏʀᴅ]</blockquote>")
                 return
 
             keyword = message.command[1].lower().strip()
@@ -1215,7 +1237,7 @@ async def add_filter_command(client: Client, message: Message):
 
         else:
             if len(message.command) < 3:
-                await message.reply("🌸 <b>✦ ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ! ✦</b> 🌸\n\n<blockquote>📁 <b>ᴛᴇxᴛ ꜰɪʟᴛᴇʀ:</b>\n/addfilter [ᴋᴇʏᴡᴏʀᴅ] [ʀᴇᴘʟʏ]</blockquote>")
+                await message.reply("📁 <b>ᴜꜱᴀɢᴇ, ꜱᴇɴᴘᴀɪ!</b>\n\n<blockquote>ᴛᴇxᴛ ꜰɪʟᴛᴇʀ:\n/addfilter [ᴋᴇʏᴡᴏʀᴅ] [ʀᴇᴘʟʏ]</blockquote>")
                 return
 
             parts = message.text.split(None, 2)
