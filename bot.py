@@ -1,4 +1,4 @@
-# bot.py - Alya Filter Bot v2.0 (Final)
+# bot.py - Alya Filter Bot v2.0 (Web Service Ready)
 import os
 import sys
 import json
@@ -38,6 +38,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+
+# ============================================================
+# WEB SERVER IMPORTS (for Render health checks)
+# ============================================================
+from aiohttp import web
 
 # ============================================================
 # CONFIGURATION
@@ -1779,6 +1784,28 @@ async def reset_daily_violations():
         logger.error(f"Reset violations error: {e}")
 
 # ============================================================
+# DUMMY WEB SERVER FOR RENDER (Web Service)
+# ============================================================
+
+async def health(request):
+    """Health check endpoint for Render"""
+    return web.Response(text="OK", status=200)
+
+async def start_web_server():
+    """Run aiohttp web server on Render's PORT"""
+    port = int(os.environ.get("PORT", 8000))
+    app_web = web.Application()
+    app_web.router.add_get('/', health)
+    app_web.router.add_get('/health', health)
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Web server running on port {port}")
+    # Keep running forever
+    await asyncio.Event().wait()
+
+# ============================================================
 # STARTUP
 # ============================================================
 
@@ -1791,25 +1818,31 @@ async def on_startup():
     logger.info("Bot is ready!")
 
 # ============================================================
-# MAIN
+# MAIN (Web Service Ready)
 # ============================================================
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  Alya Filter Bot v2.0")
-    print("  Running on Render.com" if os.environ.get("RENDER") else "  Running locally")
+    print("  Alya Filter Bot v2.0 (Web Service)")
+    print("  Running on Render")
     print("=" * 50)
 
     try:
         app.start()
         loop.run_until_complete(on_startup())
-        print("Bot is running! Press Ctrl+C to stop.")
+        print("Bot is running. Starting web server...")
         logger.info("Bot is running!")
+
+        # Start the dummy web server as a background task
+        web_task = loop.create_task(start_web_server())
+
+        # Keep the event loop running
         loop.run_forever()
     except KeyboardInterrupt:
         print("\nStopping bot...")
         logger.info("Bot stopping...")
     finally:
+        web_task.cancel()
         scheduler.shutdown()
         app.stop()
         mongo_client.close()
